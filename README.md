@@ -4,7 +4,6 @@
 
 用 DeepSeek 选择工具、RDKit 计算分子性质的中文化学助手，附带可复现的 40 题评测。
 
-> 图片位置已预留；`docs/images/header.png` 与 `docs/images/architecture.png` 将稍后加入。
 
 [English](#english)
 
@@ -115,7 +114,7 @@ chem-agent/
 │   └── results/            # 逐题详情和汇总报告
 ├── tests/                 # 工具、Agent、题集与评分器测试
 ├── docs/
-│   └── images/            # .gitkeep；两张 PNG 将稍后加入
+│   └── images/            # 头图与架构图
 ├── requirements.txt       # 当前环境的版本锁定
 ├── LICENSE                # MIT，作者 czhou143
 └── README.md
@@ -125,7 +124,7 @@ chem-agent/
 
 - [ ] 安全工具：补充有来源可核验的化学品危害信息查询和输入检查，并为安全相关输出建立测试。
 - [ ] MCP 封装：将现有工具暴露为 MCP 服务，供支持 MCP 的客户端调用。
-- [ ] 将项目头图与架构图加入 `docs/images/`。
+- [x] 将项目头图与架构图加入 `docs/images/`。
 
 以上为计划，当前尚未实现。项目采用 [MIT License](LICENSE)，Copyright (c) 2026 czhou143。
 
@@ -158,7 +157,6 @@ A chemistry assistant that uses DeepSeek to select tools and RDKit to compute mo
 
 `chem_agent/tools.py` defines tools and JSON schemas, `chem_agent/agent.py` runs the model/tool loop, and `eval/run_eval.py` compares results with expected values. The current model is `deepseek-chat` at `https://api.deepseek.com`; credentials come from `LLM_API_KEY`.
 
-The header and architecture image references above reserve `docs/images/header.png` and `docs/images/architecture.png`; both images will be added later.
 
 ### Live evaluation results
 
