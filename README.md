@@ -1,64 +1,223 @@
 # Chem Agent · 化学工具助手
 
-用 RDKit 计算分子性质，用 DeepSeek 选择工具并生成中文回答；包含可复现的 40 题评测。
-A small chemistry assistant with RDKit tools, a handwritten DeepSeek function-calling loop, and a reproducible 40-question evaluation.
+![Chem Agent 项目头图 / Project header](docs/images/header.png)
 
-支持 / Tools: `mol_weight`, `logp`, `formula`, `tpsa`, `hbd_hba`, `lipinski`, `similarity`.
+用 DeepSeek 选择工具、RDKit 计算分子性质的中文化学助手，附带可复现的 40 题评测。
 
-## 运行 / Quick start
+> 图片位置已预留；`docs/images/header.png` 与 `docs/images/architecture.png` 将稍后加入。
 
-在项目根目录使用 Windows PowerShell；本机验证环境为 Python 3.12.5。
-Run these commands from the project root in Windows PowerShell (tested with Python 3.12.5).
+[English](#english)
+
+## 功能
+
+| RDKit 工具 | 功能 |
+| --- | --- |
+| `mol_weight(smiles)` | 平均分子量，保留两位小数；数值对应摩尔质量 g/mol |
+| `logp(smiles)` | Wildman–Crippen 预测 LogP |
+| `formula(smiles)` | 分子式 |
+| `tpsa(smiles)` | 拓扑极性表面积，单位 Å² |
+| `hbd_hba(smiles)` | 氢键供体数和受体数 |
+| `lipinski(smiles)` | Lipinski 指标、违反项数和筛选结果；当前实现允许最多违反一项 |
+| `similarity(smiles_a, smiles_b)` | Morgan 指纹的 Tanimoto 相似度，半径 2、2048 位，不编码手性 |
+
+- **Function-calling Agent**：使用 OpenAI 兼容 SDK 手写循环，不依赖 LangChain；模型选工具，本地执行并回传结果，最终用中文回答。默认最多请求模型 5 次，保留每次工具调用的参数和结果。
+- **40 题评测**：分子量、LogP、分子式、TPSA、氢键数、Lipinski 各 5 题，相似度 6 题，非法 SMILES 4 题。期望值由本地工具生成，支持自动评分、按类别汇总和错题记录。
+- **输入检查**：工具遇到非法 SMILES 返回 `error`；单道评测题异常记为失败并继续。
+- **三题演示**：依次展示分子量、分子式和相似度问题的工具名称、参数、计算结果及最终回答。
+
+## 架构
+
+**问题 → DeepSeek 选工具 → RDKit 本地计算 → 工具结果回传 DeepSeek → 中文回答**
+
+![Chem Agent 架构图 / Architecture](docs/images/architecture.png)
+
+`chem_agent/tools.py` 提供函数注册表和 JSON Schema；`chem_agent/agent.py` 负责模型请求与工具循环；`eval/run_eval.py` 逐题运行并与期望值比较。
+
+当前模型为 `deepseek-chat`，接口为 `https://api.deepseek.com`。密钥仅从环境变量 `LLM_API_KEY` 读取；本地 RDKit 工具和离线测试无需密钥。
+
+## 真实评测结果
+
+以下数字来自 [真实评测报告](eval/results/summary.md)，运行时间为 **2026-10-18 22:19:50–22:21:17（UTC+8）**，模型为 `deepseek-chat`。
+
+| 指标 | 真实结果 |
+| --- | ---: |
+| 题目总数 | 40 |
+| 总准确率 | 100.00%（40/40） |
+| 工具选择准确率 | 100.00%（40/40） |
+| 数值/结果准确率 | 100.00%（40/40） |
+| 异常数 | 0 |
+| 错题数 | 0 |
+
+各类别均全部通过；可查看 [40 题原始记录](eval/results/20261018_221950_033160.jsonl)。本地测试结果为 **93 passed**。
+
+评分检查有效题的**第一条工具调用**及其结果：浮点数使用题目规定的绝对容差，整数、字符串、布尔值精确匹配；非法题以中文规则检查回答是否明确说明输入无效。总通过还要求取得最终回答。该成绩对应当前题集与规则，不逐句核验最终自然语言解释的所有数值或科学表述。
+
+## 快速开始
+
+以下命令在项目根目录的 **Windows PowerShell** 中执行；本机验证环境为 **Python 3.12.5**。
+
+### 1. 建立虚拟环境并安装依赖
 
 ```powershell
-# 首次安装 / First-time setup
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-
-# 每次新终端先激活；密钥只保存在环境变量中。
-# Activate the environment in each new terminal; keep the key in the environment.
-$env:LLM_API_KEY = "<your DeepSeek API key>"
-python -m chem_agent.agent "阿司匹林的分子量是多少"
 ```
 
-模型 / Model: `deepseek-chat`; API: `https://api.deepseek.com`.
+已有 `.venv` 时跳过创建；以后每次打开终端，先执行 `.\.venv\Scripts\Activate.ps1`。`requirements.txt` 锁定当前环境的直接依赖及间接依赖版本。
 
-## 测试与评测 / Tests and evaluation
+### 2. 设置密钥并运行示例
 
 ```powershell
+$env:LLM_API_KEY = "替换为你的 DeepSeek API key"
+python -m chem_agent.agent "阿司匹林的分子量是多少"
+python examples/demo.py
+```
+
+密钥设置只影响当前 PowerShell 会话；不要把实际密钥写入源码。若尚无密钥，可先运行纯本地示例：
+
+```powershell
+python examples/min_tool_demo.py
+```
+
+`demo.py` 在每道问题完成后，按顺序展示该题记录的每一步工具调用和最终回答。
+
+### 3. 跑测试与评测
+
+```powershell
+# 以下命令不需要密钥或网络
 python -m pytest -q
 python eval/build_questions.py --check
 python eval/run_eval.py --dry-run --limit 3
+
+# 以下命令使用真实 API，需要 LLM_API_KEY
 python eval/run_eval.py --limit 5
 python eval/run_eval.py
 ```
 
-`--dry-run` 不需要密钥，不联网，用 mock 检查流程；报告单独写到 `eval/results/dry_run/`，不代表模型成绩。
-Dry runs use expected answers as mock responses, require no API key, and save separate reports; their scores do not measure model quality.
+真实评测保存 `eval/results/<日期时间>.jsonl`，并更新 `eval/results/summary.md`；`--limit N` 只跑前 N 题。`--dry-run` 用期望值构造 mock 返回，报告写入独立的 `eval/results/dry_run/`，用于检查流程，模拟成绩不代表模型能力。
 
-真实评测逐题调用 Agent，异常记为失败并继续，输出带时间的 JSONL 详情和 `eval/results/summary.md`。
-Live evaluation calls the Agent for each question, records individual exceptions as failures, and writes timestamped JSONL details plus a Markdown summary.
+## 项目结构
 
-## 首次真实结果 / First live results
+```text
+chem-agent/
+├── chem_agent/
+│   ├── __init__.py
+│   ├── tools.py            # RDKit 工具与函数描述
+│   └── agent.py            # DeepSeek function-calling 循环
+├── examples/
+│   ├── min_tool_demo.py    # 无需密钥的本地示例
+│   └── demo.py             # 三种问题的完整 Agent 演示
+├── eval/
+│   ├── build_questions.py  # 生成、校验期望值
+│   ├── questions.jsonl     # 40 道中文题
+│   ├── run_eval.py         # 自动评分
+│   └── results/            # 逐题详情和汇总报告
+├── tests/                 # 工具、Agent、题集与评分器测试
+├── docs/
+│   └── images/            # .gitkeep；两张 PNG 将稍后加入
+├── requirements.txt       # 当前环境的版本锁定
+├── LICENSE                # MIT，作者 czhou143
+└── README.md
+```
 
-2026-10-18，完整 40 题，`deepseek-chat`，共 80 次模型请求；全部本地测试 **93 passed**。
-Full live run on 2026-10-18: 40 questions, 80 model requests; **93 local tests passed**.
+## 后续计划
 
-| 指标 / Metric | 结果 / Result |
+- [ ] 安全工具：补充有来源可核验的化学品危害信息查询和输入检查，并为安全相关输出建立测试。
+- [ ] MCP 封装：将现有工具暴露为 MCP 服务，供支持 MCP 的客户端调用。
+- [ ] 将项目头图与架构图加入 `docs/images/`。
+
+以上为计划，当前尚未实现。项目采用 [MIT License](LICENSE)，Copyright (c) 2026 czhou143。
+
+---
+
+## English
+
+A chemistry assistant that uses DeepSeek to select tools and RDKit to compute molecular properties, with a reproducible 40-question evaluation.
+
+### Features
+
+| RDKit tool | Purpose |
+| --- | --- |
+| `mol_weight` | Average molecular weight, rounded to two decimals |
+| `logp` | Wildman–Crippen predicted LogP |
+| `formula` | Molecular formula |
+| `tpsa` | Topological polar surface area in Å² |
+| `hbd_hba` | Hydrogen-bond donor and acceptor counts |
+| `lipinski` | Lipinski values, violation count and screening result; at most one violation passes |
+| `similarity` | Morgan-fingerprint Tanimoto similarity; radius 2, 2048 bits, without chirality |
+
+- A handwritten function-calling loop using the OpenAI-compatible SDK, without LangChain. It defaults to five model requests, records tool arguments/results, and answers in Chinese.
+- A 40-question evaluation: five questions each for molecular weight, LogP, formula, TPSA, hydrogen bonds and Lipinski; six similarity questions and four invalid inputs. Expected values are generated by the local tools.
+- Invalid SMILES return an `error`; individual evaluation exceptions are recorded as failures without stopping the batch.
+- A three-question demo prints each recorded tool call and the final answer after each question finishes.
+
+### Architecture
+
+**Question → DeepSeek selects a tool → RDKit computes locally → Results return to DeepSeek → Final answer**
+
+`chem_agent/tools.py` defines tools and JSON schemas, `chem_agent/agent.py` runs the model/tool loop, and `eval/run_eval.py` compares results with expected values. The current model is `deepseek-chat` at `https://api.deepseek.com`; credentials come from `LLM_API_KEY`.
+
+The header and architecture image references above reserve `docs/images/header.png` and `docs/images/architecture.png`; both images will be added later.
+
+### Live evaluation results
+
+Source: [saved report](eval/results/summary.md), **2026-10-18 22:19:50–22:21:17 (UTC+8)**, using `deepseek-chat`.
+
+| Metric | Live result |
 | --- | ---: |
-| 总准确率 / Overall accuracy | 100.00% (40/40) |
-| 工具选择准确率 / Tool selection accuracy | 100.00% (40/40) |
-| 数值或结果准确率 / Result accuracy | 100.00% (40/40) |
-| 异常 / Exceptions | 0 |
-| 错题 / Failed questions | 0 |
+| Questions | 40 |
+| Overall accuracy | 100.00% (40/40) |
+| Tool selection accuracy | 100.00% (40/40) |
+| Value/result accuracy | 100.00% (40/40) |
+| Exceptions | 0 |
+| Failed questions | 0 |
 
-分子量、LogP、分子式、TPSA、氢键数、Lipinski 各 5 题，相似度 6 题，非法 SMILES 4 题；各类均全部通过。
-Five questions each for molecular weight, LogP, formula, TPSA, hydrogen bonds, and Lipinski; six for similarity and four invalid SMILES. Every category passed.
+Every category passed; [raw records](eval/results/20261018_221950_033160.jsonl) are available. Local tests: **93 passed**.
 
-有效题检查第一条工具调用的名称与结果：浮点数按绝对容差比较，整数、字符串、布尔值精确匹配。非法题检查中文回答是否明确说明输入无效，不限定所用工具；此项采用规则匹配。总通过还要求已有最终回答。该成绩只反映此题集与评分规则，不单独验证最终自然语言解释的每个数值或科学表述。
-Valid questions score the first tool name and its result using absolute float tolerances and exact integer/string/boolean matching. Invalid-input questions use Chinese text rules to check explicit rejection, with no required tool. Overall success also requires a final answer. These scores apply to this dataset and rubric, not to every numerical or scientific claim in the final prose.
+Valid questions score the first tool call and its result, using absolute float tolerances and exact integer/string/boolean matching. Invalid-input questions use Chinese text rules to check explicit rejection. Overall success also requires a final answer. The rubric does not verify every scientific or numerical claim in the final prose.
 
-- [完整报告 / Full report](eval/results/summary.md)
-- [真实逐题记录 / Live records](eval/results/20261018_221950_033160.jsonl)
-- [当前进度 / Project progress](docs/03-当前进度.md)
+### Quick start
+
+From the project root in **Windows PowerShell**, with **Python 3.12** (tested on 3.12.5):
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+
+$env:LLM_API_KEY = "<your DeepSeek API key>"
+python -m chem_agent.agent "阿司匹林的分子量是多少"
+python examples/demo.py
+
+# Offline: no API key or network required
+python examples/min_tool_demo.py
+python -m pytest -q
+python eval/build_questions.py --check
+python eval/run_eval.py --dry-run --limit 3
+
+# Live: requires an API key
+python eval/run_eval.py --limit 5
+python eval/run_eval.py
+```
+
+Skip environment creation if `.venv` exists; activate it in each new terminal. Requirements pin the installed direct and transitive dependencies. Keep real credentials out of source files; the command above sets the key only for the current session.
+
+Live evaluation writes timestamped JSONL details and updates `eval/results/summary.md`. Dry runs use expected answers as mock responses and save separate reports under `eval/results/dry_run/`; their scores are not model-quality measurements.
+
+### Project layout
+
+- `chem_agent/`: RDKit tools, schemas and the Agent loop.
+- `examples/`: a local RDKit example and the three-question Agent demo.
+- `eval/`: dataset generation, 40 questions, evaluation runner and reports.
+- `tests/`: tools, Agent, dataset and scoring tests.
+- `docs/`: project documents and the reserved `images/` directory.
+- `requirements.txt`, `LICENSE`, `README.md`: pinned environment, license and usage documentation.
+
+### Roadmap
+
+- [ ] Safety tools: source-backed chemical hazard lookup, input checks and tests for safety-related outputs.
+- [ ] MCP wrapper: expose the existing tools to MCP-compatible clients.
+- [ ] Add the project header and architecture images.
+
+These items are planned, not implemented. Licensed under the [MIT License](LICENSE), Copyright (c) 2026 czhou143.
