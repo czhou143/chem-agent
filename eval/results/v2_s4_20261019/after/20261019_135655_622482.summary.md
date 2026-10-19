@@ -4,7 +4,7 @@
 - 开始时间：2026-10-19T13:56:55+08:00；完成时间：2026-10-19T13:59:57+08:00
 - 模型：`deepseek-flash`；接口：`https://api.deepseek.com`
 - 题集 SHA256：`2a95a4f9c713b04ba0f4fd91c16e79db2bffc05c07ab48be602bdc36e2f3a24d`
-- 题集：`E:\人生规划\chem-agent\chem-agent\eval\questions_v2.jsonl`
+- 题集：`eval/questions_v2.jsonl`
 - 每题详情：[20261019_135655_622482.jsonl](20261019_135655_622482.jsonl)
 - 题数：60；异常：0
 - 总准确率：**100.00%**（60/60）

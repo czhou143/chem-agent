@@ -139,7 +139,7 @@
 ## 第 11 条：safety_check（S2）
 
 ```text
-在 E:\人生规划\chem-agent\chem-agent（.venv）完成 S2：
+在项目根目录（使用 .venv）完成 S2：
 1. 在 chem_agent/tools.py 新增 safety_check(smiles)，仅使用 RDKit 内置
    FilterCatalog 的 BRENK 与 NIH 目录，不自己手写 SMARTS 规则。
    返回 {"alerts": [{"name", "catalog": "BRENK|NIH", "source"}],

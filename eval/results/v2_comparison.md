@@ -2,9 +2,9 @@
 
 所有计数均从下列两份真实 JSONL 结果重新计算；不使用试跑数据或估算值。
 
-- 改进前：`E:/人生规划/chem-agent/chem-agent/eval/results/v2_s4_20261019/before/20261019_135227_696372.jsonl`；60 行；SHA256 `5bc1a0a750c02b6de4f0aa61bf0e06b02fc42c39d85d58749a5f6b3d2a8bd97f`
+- 改进前：`eval/results/v2_s4_20261019/before/20261019_135227_696372.jsonl`；60 行；SHA256 `5bc1a0a750c02b6de4f0aa61bf0e06b02fc42c39d85d58749a5f6b3d2a8bd97f`
   - system prompt SHA256：`b18654a20cd0c4a8b9ea08490e6ab93a4085f441ea11ecff5e0ea6f50cdb1751`
-- 改进后：`E:/人生规划/chem-agent/chem-agent/eval/results/v2_s4_20261019/after/20261019_135655_622482.jsonl`；60 行；SHA256 `ebb686fbcf0d454d2475d52a9bc2575546acd0ebe6fafa1a703a09013adac10d`
+- 改进后：`eval/results/v2_s4_20261019/after/20261019_135655_622482.jsonl`；60 行；SHA256 `ebb686fbcf0d454d2475d52a9bc2575546acd0ebe6fafa1a703a09013adac10d`
   - system prompt SHA256：`5948e230225da11b72b96d3f0f7622d7080a251a2d7e67e0290dee2b157eaa0b`
 
 | 指标 | 改进前 | 改进后 |
