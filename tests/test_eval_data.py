@@ -46,7 +46,9 @@ def test_tool_names_and_question_distribution(rows):
 
     assert len(valid_rows) == 36
     assert len(invalid_rows) == 4
-    assert set(counts) == set(TOOLS)
+    # v1 的 40 道题只覆盖原有 7 个工具；新工具将在后续题集验证。
+    assert set(counts) == {"mol_weight", "logp", "formula", "tpsa", "hbd_hba", "lipinski", "similarity"}
+    assert set(counts) <= set(TOOLS)
     assert all(name in TOOLS for name in counts)
     assert all(5 <= count <= 6 for count in counts.values())
 

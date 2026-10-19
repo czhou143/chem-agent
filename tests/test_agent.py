@@ -116,6 +116,22 @@ def test_tool_result_is_sent_back_before_final_answer(mock_model):
     assert json.loads(tool_message["content"]) == {"mol_weight": 180.16}
 
 
+def test_safety_result_and_instructions_are_sent_to_model(mock_model):
+    answer = "命中酰卤相关警示。" + tools.SAFETY_DISCLAIMER
+    _, _, requests = mock_model(
+        model_response(tool_calls=[tool_call("safety_check", '{"smiles": "CC(=O)Cl"}', "call_safety")]),
+        model_response(answer),
+    )
+    result = agent.run("乙酰氯有危险吗？SMILES：CC(=O)Cl")
+    assert result["answer"] == answer
+    assert result["tool_calls"][0]["name"] == "safety_check"
+    prompt = requests[0]["messages"][0]["content"]
+    assert "直接拒绝" in prompt and "disclaimer" in prompt
+    message = requests[1]["messages"][-1]
+    assert message["role"] == "tool" and message["tool_call_id"] == "call_safety"
+    assert json.loads(message["content"]) == tools.safety_check("CC(=O)Cl")
+
+
 def test_max_steps_stops_without_an_extra_model_request(mock_model):
     _, client, requests = mock_model(
         model_response(tool_calls=[tool_call("formula", '{"smiles": "CCO"}', "call_1")]),

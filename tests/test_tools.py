@@ -14,12 +14,13 @@ from chem_agent.tools import (
     logp,
     mol_weight,
     similarity,
+    safety_check,
     tpsa,
 )
 
 
 ASPIRIN = "CC(=O)Oc1ccccc1C(=O)O"
-SINGLE_MOLECULE_TOOLS = (mol_weight, logp, formula, tpsa, hbd_hba, lipinski)
+SINGLE_MOLECULE_TOOLS = (mol_weight, logp, formula, tpsa, hbd_hba, lipinski, safety_check)
 
 
 def assert_error(result):
@@ -124,7 +125,7 @@ def test_similarity_returns_error_for_invalid_input(smiles_a, smiles_b):
 def test_tool_schemas_match_registered_functions():
     """声明的工具必须真的存在，且参数名与 Python 函数签名一致。"""
     expected_names = {
-        "mol_weight", "logp", "formula", "tpsa", "hbd_hba", "lipinski", "similarity"
+        "mol_weight", "logp", "formula", "tpsa", "hbd_hba", "lipinski", "similarity", "safety_check"
     }
     assert set(TOOLS) == expected_names
     assert isinstance(TOOL_SCHEMAS, list)

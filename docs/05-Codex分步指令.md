@@ -1,4 +1,4 @@
-# Codex 分步指令（共 10 条，按顺序一条条复制）
+# Codex 分步指令（共 11 条，按顺序一条条复制）
 
 使用方法：在项目文件夹 chem-agent 里打开 Codex，**一次只贴一条**；做完后按“验收方法”自己检查，通过了再贴下一条。看不懂的地方直接问 Codex“请用化学专业新手能懂的话解释这段代码”。
 已验证：2026-10-18 在 Linux + Python 3 上 `pip install rdkit`（2026.09.1）可直接安装，examples/min_tool_demo.py 运行正常。
@@ -134,3 +134,52 @@
 ```
 **知识点**：本地仓库与远程仓库；身份验证；密钥泄露的后果（公开仓库里的 key 几分钟内就会被盗用）。
 **验收方法**：浏览器打开 https://github.com/<你的用户名>/chem-agent 能看到代码和 README；仓库里搜不到 key。
+
+---
+## 第 11 条：safety_check（S2）
+
+```text
+在 E:\人生规划\chem-agent\chem-agent（.venv）完成 S2：
+1. 在 chem_agent/tools.py 新增 safety_check(smiles)，仅使用 RDKit 内置
+   FilterCatalog 的 BRENK 与 NIH 目录，不自己手写 SMARTS 规则。
+   返回 {"alerts": [{"name", "catalog": "BRENK|NIH", "source"}],
+         "alert_count", "disclaimer"}。
+   source 使用下方核实的目录来源；无匹配返回空 alerts，非法 SMILES 返回 error。
+   disclaimer 固定为：
+   仅基于结构的规则粗筛（药物化学警示库），不是毒性或爆炸性评估，请以 MSDS/SDS 为准
+2. 加入 TOOLS 与 TOOL_SCHEMAS。system prompt 要求安全、危险、毒性问题
+   调用 safety_check 并完整转述免责声明；不提供任何合成路线或制备方法，
+   遇到此类请求直接拒绝。
+3. 新增 tests/test_safety.py，测试名必须包含 safety_tnt_nitro、
+   safety_ethanol_clean、safety_invalid；另测乙酰氯检出酰卤、叠氮甲烷检出叠氮、
+   schema 与 TOOLS 对应，以及 system prompt 包含拒绝合成的说明。
+4. 在本文件记录指令与来源，并更新 docs/03-当前进度.md。
+5. 运行全部 pytest（应多于 93），运行下方 schema 检查命令，确认有 safety_check。
+本步不跑真实评测，不调用 DeepSeek；使用本地 RDKit 输出 TNT、乙醇、乙酰氯的结果。
+git commit "feat: S2 safety_check (RDKit Brenk+NIH)"，不要 push。
+汇报 pytest 结果、三个分子的实际输出和 commit hash。
+```
+
+**核实的规则来源**：
+
+| catalog | source 返回值 | 文献 |
+| --- | --- | --- |
+| BRENK | `Brenk et al., ChemMedChem 2008, doi:10.1002/cmdc.200700139` | [Lessons Learnt from Assembling Screening Libraries for Drug Discovery for Neglected Diseases](https://doi.org/10.1002/cmdc.200700139) |
+| NIH | `Jadhav et al., J Med Chem 2010, doi:10.1021/jm901070c` | [Quantitative Analyses of Aggregation, Autofluorescence, and Reactivity Artifacts in a Screen for Inhibitors of a Thiol Protease](https://pubmed.ncbi.nlm.nih.gov/19908840/) |
+
+**原指令 DOI 勘误**：`10.1021/jm901137j` 对应 [Baell 与 Holloway 的 PAINS 论文](https://pubmed.ncbi.nlm.nih.gov/20131845/)，并非 Jadhav 的 NIH 目录来源。实现采用核实后的 `10.1021/jm901070c`，不加载 PAINS。NIH 论文在线发表于 2009 年，正式卷期为 2010 年，因此 `source` 保留 2010。
+
+实现通过 [RDKit FilterCatalog API](https://www.rdkit.org/docs/source/rdkit.Chem.rdfiltercatalog.html) 的 `GetMatches` 取得目录条目、`GetDescription` 取得原始警示名称。RDKit 2026.09.1 本机目录分别含 BRENK 105 条、NIH 180 条，匹配过程全部在本地执行；使用已有库，不复制规则表或自行新增规则。RDKit 自带 [BSD 许可证](https://github.com/rdkit/rdkit/blob/master/license.txt)，本机 `rdkit/Chem/FilterCatalog.py` 文件头也指向此许可证；文献引用用于记录规则来源，不改变论文自身的版权。
+
+**输出含义**：`alert_count` 是命中规则的条目数，不是官能团数；跨目录命中分别保留出处。无匹配仍返回免责声明，不推断“安全”。输出不包含风险等级、毒性结论或爆炸性结论。
+
+**离线验收命令**（已激活 `.venv`）：
+
+```powershell
+python -m pytest -q
+python eval/build_questions.py --check
+python -c "from chem_agent.tools import TOOL_SCHEMAS; import json; print(json.dumps(TOOL_SCHEMAS, ensure_ascii=False, indent=1))"
+python -c "from chem_agent.tools import safety_check; print(safety_check('CCO'))"
+```
+
+**验收记录（2026-10-19）**：108 passed；schema 中有 safety_check；TNT 命中 3 条、乙醇 0 条、乙酰氯 2 条、叠氮甲烷 4 条，具体名称见进度文档。v1 题集仍为原 40 题，本步没有新增真实模型评测。拒绝合成与转述免责声明的要求已写入 prompt，并通过离线 mock 检查请求内容；真实模型的遵从性尚未验证。

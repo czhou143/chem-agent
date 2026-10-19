@@ -4,8 +4,10 @@
 例如：mol_weight("CCO") 返回 {"mol_weight": 46.07}。
 """
 
+from functools import lru_cache
+
 from rdkit import Chem, DataStructs
-from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator
+from rdkit.Chem import Crippen, Descriptors, FilterCatalog, Lipinski, rdFingerprintGenerator
 from rdkit.Chem import rdMolDescriptors
 
 
@@ -119,6 +121,47 @@ def similarity(smiles_a: str, smiles_b: str) -> dict:
     return {"similarity": DataStructs.TanimotoSimilarity(fingerprint_a, fingerprint_b)}
 
 
+SAFETY_SOURCES = {
+    "BRENK": "Brenk et al., ChemMedChem 2008, doi:10.1002/cmdc.200700139",
+    # RDKit 内置 NIH Reference 与 PubMed PMID 19908840 一致；jm901137j 属于 PAINS。
+    "NIH": "Jadhav et al., J Med Chem 2010, doi:10.1021/jm901070c",
+}
+SAFETY_DISCLAIMER = (
+    "仅基于结构的规则粗筛（药物化学警示库），不是毒性或爆炸性评估，请以 MSDS/SDS 为准"
+)
+
+
+@lru_cache(maxsize=1)
+def _safety_catalogs() -> tuple:
+    """首次使用时加载两个内置目录，之后复用；不新增或改写任何 SMARTS。"""
+    catalogs = []
+    for name in ("BRENK", "NIH"):
+        parameters = FilterCatalog.FilterCatalogParams()
+        parameters.AddCatalog(getattr(FilterCatalog.FilterCatalogParams.FilterCatalogs, name))
+        catalogs.append((name, FilterCatalog.FilterCatalog(parameters)))
+    return tuple(catalogs)
+
+
+def safety_check(smiles: str) -> dict:
+    """返回 BRENK、NIH 命中的规则及出处，不判断毒性、爆炸性或安全等级。
+
+    alert_count 是命中的目录条目数，不是分子中基团的个数。
+    同一结构命中两个目录时分别保留来源；无匹配不等于安全。
+    """
+    mol = _parse_smiles(smiles)
+    if mol is None:
+        return _invalid_smiles()
+
+    alerts = []
+    for name, catalog in _safety_catalogs():
+        for entry in catalog.GetMatches(mol):
+            alerts.append({"name": entry.GetDescription(), "catalog": name,
+                           "source": SAFETY_SOURCES[name]})
+    # 固定输出顺序，便于阅读、测试和后续评测复现。
+    alerts.sort(key=lambda alert: (alert["catalog"], alert["name"]))
+    return {"alerts": alerts, "alert_count": len(alerts), "disclaimer": SAFETY_DISCLAIMER}
+
+
 # 用字符串名称找到对应函数，例如 TOOLS["formula"]("CCO")。
 TOOLS = {
     "mol_weight": mol_weight,
@@ -128,6 +171,7 @@ TOOLS = {
     "hbd_hba": hbd_hba,
     "lipinski": lipinski,
     "similarity": similarity,
+    "safety_check": safety_check,
 }
 
 
@@ -174,5 +218,11 @@ TOOL_SCHEMAS = [
         "计算两个分子的 Morgan 指纹 Tanimoto 相似度，返回 similarity（0 到 1）；"
         "指纹半径 2、2048 位、不编码手性",
         ("smiles_a", "smiles_b"),
+    ),
+    _tool_schema(
+        "safety_check",
+        "用户问到安全、危险、毒性时调用；仅使用 RDKit 内置 BRENK、NIH 药物化学警示目录，"
+        "返回 alerts（name、catalog、source）、alert_count 和 disclaimer。"
+        "必须转述免责声明，无匹配不表示安全；不是毒性或爆炸性评估，请以 MSDS/SDS 为准",
     ),
 ]

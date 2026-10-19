@@ -198,7 +198,8 @@ def validate_questions(rows: list[dict]) -> None:
             raise ValueError(f"{row['id']} 的 tolerance 必须是非负有限数。")
 
     counts = Counter(row["expected_tool"] for row in rows)
-    expected_counts = {name: 5 for name in tools.TOOLS}
+    # v1 覆盖由题目模板定义，工具注册表后续扩展不会改变已有 40 题。
+    expected_counts = {name: 5 for name in SINGLE_TOOL_CASES}
     expected_counts.update({"similarity": 6, None: 4})
     if counts != expected_counts:
         raise ValueError("题目分布应为六类各 5 题、相似度 6 题、非法输入 4 题。")
