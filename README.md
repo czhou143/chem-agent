@@ -41,7 +41,7 @@
 
 两张图是**同一次运行的连续输出，分两屏截取**；原样保存，没有拼接、修改像素文字或美化对齐。可与[完整原始日志](examples/demo_output.txt)核对工具参数、结果和最终回答。
 
-日志保留原始 UTF-16LE 编码；若网页不显示文本，可下载后用支持该编码的文本编辑器打开。
+日志已从 UTF-16LE 转为无 BOM 的 UTF-8；转换前后文字逐字一致。
 
 第 1 屏：阿司匹林分子量，以及咖啡因分子式题的前半部分。
 
@@ -277,7 +277,7 @@ These two raw terminal screenshots come from one real run of `examples/demo.py`:
 
 They show **continuous output from the same run, captured across two screens**. The screenshots are preserved as supplied, without stitching, pixel/text edits, or alignment retouching. Compare the tool arguments, results, and final answers with the [complete raw log](examples/demo_output.txt).
 
-The log retains its original UTF-16LE encoding. If the web viewer does not display it as text, download it and open it in a text editor that supports this encoding.
+The log has been converted from UTF-16LE to UTF-8 without a BOM; its text is unchanged character for character.
 
 Screen 1: the aspirin question and the first portion of the caffeine question.
 
