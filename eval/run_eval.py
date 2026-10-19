@@ -3,6 +3,7 @@
 import argparse
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import hashlib
 import json
 import math
@@ -28,6 +29,47 @@ CATEGORY_NAMES = {
     "similarity": "相似度", "invalid_smiles": "非法 SMILES",
     "safety": "安全检查", "multi_step": "多步骤", "confusable": "易混淆",
 }
+
+# 2026-10-19 官方 Flash 高峰价格：输入未命中 2 元/M，输出 8 元/M。
+# 预算不计缓存/空闲折扣。1M 上下文 + 最多 2048 输出 tokens 的单请求上界 < 2.2 元。
+# https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
+class TokenBudget:
+    REQUEST_RESERVE = Decimal("2.2")
+
+    def __init__(self, limit_cny):
+        self.limit = Decimal(str(limit_cny))
+        if not self.limit.is_finite() or self.limit <= 0:
+            raise ValueError("budget_cny 必须是正的有限数")
+        self.spent = Decimal("0")
+
+    def reserve_request(self):
+        if self.spent + self.REQUEST_RESERVE > self.limit:
+            raise agent.BudgetExceeded("剩余预算不足以覆盖下一次请求的保守费用上界，已停止。")
+        self.spent += self.REQUEST_RESERVE
+
+    def settle_request(self, usage):
+        if usage is None:
+            raise agent.BudgetExceeded("API 未返回完整 token 用量，无法核算预算，已停止；保留本次费用预留。")
+        cost = (Decimal(usage["prompt_tokens"]) * 2 + Decimal(usage["completion_tokens"]) * 8) / 1_000_000
+        self.spent += cost - self.REQUEST_RESERVE
+        if self.spent > self.limit:
+            raise agent.BudgetExceeded("实际用量超过预算，停止后续请求。")
+
+
+TOKEN_FIELDS = ("prompt_tokens", "completion_tokens", "total_tokens")
+
+
+def _save_usage(record, usage):
+    record["usage"] = deepcopy(usage)
+    record["usage_complete"] = isinstance(usage, dict) and usage.get("complete") is True
+    for field in TOKEN_FIELDS:
+        record[field] = usage.get(field) if isinstance(usage, dict) else None
+
+
+def _total_usage(records):
+    return {**{field: sum(row[field] for row in records if type(row.get(field)) is int)
+               for field in TOKEN_FIELDS},
+            "incomplete_questions": sum(not row["usage_complete"] for row in records)}
 
 
 def matches_expected(actual, expected, tolerance: float) -> bool:
@@ -155,11 +197,14 @@ def _safe_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {message[:500]}"
 
 
-def evaluate_one(question_row: dict, dry_run: bool = False) -> dict:
+def evaluate_one(question_row: dict, dry_run: bool = False, budget=None) -> dict:
     """单题边界：任何调用/评分异常都记作失败，让批量评测能够继续。"""
     start = time.perf_counter()
     record = {**deepcopy(question_row), "mode": "dry-run" if dry_run else "live",
-              "answer": "", "tool_calls": [], "steps": 0, "error": None}
+              "answer": "", "tool_calls": [], "steps": 0, "error": None,
+              "budget_exceeded": False}
+    _save_usage(record, None)
+    spent_before = budget.spent if budget is not None else None
     try:
         if dry_run:
             # 用题集答案构造 mock，仅验证读题、评分和写报告的管道。
@@ -178,20 +223,28 @@ def evaluate_one(question_row: dict, dry_run: bool = False) -> dict:
                 "answer": "输入的 SMILES 无效。" if name is None else "离线模拟：已获得工具结果。",
                 "tool_calls": mock_calls,
                 "steps": 0,
+                "usage": agent.empty_usage(),
             })
             response = mock_run(question_row["question"])
         else:
-            response = agent.run(question_row["question"])
+            response = (agent.run(question_row["question"]) if budget is None else
+                        agent.run(question_row["question"], budget=budget))
         if not isinstance(response, dict):
             raise TypeError("Agent 返回值必须是字典")
         for field in ("answer", "tool_calls", "steps"):
             record[field] = response[field]
+        _save_usage(record, response.get("usage"))
         record.update(score_response(question_row, response))
         # 序列化错误也属于单题错误，不能让它中断后续问题。
         json.dumps(record, ensure_ascii=False, allow_nan=False)
     except Exception as exc:
         record.update(answer="", tool_calls=[], steps=0, tool_correct=False,
                       value_correct=False, correct=False, reason="单题执行异常", error=_safe_error(exc))
+        if isinstance(exc, agent.AgentRunError):
+            _save_usage(record, exc.usage)
+            record.update(tool_calls=exc.tool_calls, steps=exc.steps, budget_exceeded=exc.budget_exceeded)
+    if budget is not None:
+        record["budget_charged_cny"] = float(budget.spent - spent_before)
     record["duration_s"] = round(time.perf_counter() - start, 3)
     return record
 
@@ -257,6 +310,9 @@ def _write_summary(summary: dict, records: list[dict], path: Path) -> None:
              f"- 总准确率：**{summary['accuracy']:.2%}**（{summary['correct']}/{summary['total']}）",
              f"- 工具选择准确率：**{summary['tool_accuracy']:.2%}**（{summary['tool_correct']}/{summary['total']}）",
              f"- 数值/结果准确率：**{summary['value_accuracy']:.2%}**（{summary['value_correct']}/{summary['total']}）",
+             f"- API 返回的已知 token：输入 {summary['usage']['prompt_tokens']}；输出 {summary['usage']['completion_tokens']}；合计 {summary['usage']['total_tokens']}",
+             f"- 用量不完整的题数：{summary['usage']['incomplete_questions']}（不完整时已知用量不能视为全量）",
+             f"- 预算停止：{summary['budget_stopped']}；本轮预算核算上界（元）：{summary['budget_charged_cny']}",
              "", "## 评分口径", "",
              "单工具题检查第一条工具调用。含 expected_tools 的多工具题要求完整调用序列严格一致（包括重复工具）；少调、多调、倒序均不通过，并逐项比较对应结果。",
              "安全题的名称列表与实际 alerts 中的 name 比较，忽略排列顺序但保留重复数量；其他结果递归比较，浮点数用绝对容差，整数、字符串、布尔值精确匹配。",
@@ -284,7 +340,7 @@ def _write_summary(summary: dict, records: list[dict], path: Path) -> None:
 
 
 def run_evaluation(questions_path=EVAL_DIR / "questions.jsonl",
-                   output_dir=None, limit=None, dry_run=False) -> dict:
+                   output_dir=None, limit=None, dry_run=False, budget_cny=None) -> dict:
     """顺序运行并即时保存每题详情，返回汇总数字及输出文件路径。"""
     if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
         raise ValueError("limit 必须是大于 0 的整数")
@@ -299,18 +355,29 @@ def run_evaluation(questions_path=EVAL_DIR / "questions.jsonl",
     output_dir = Path(output_dir)
     if dry_run:
         output_dir /= "dry_run"
+    budget = TokenBudget(budget_cny) if budget_cny is not None and not dry_run else None
     output_dir.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone(timedelta(hours=8)))
     records_path = output_dir / (started.strftime("%Y%m%d_%H%M%S_%f") + ".jsonl")
+    metadata = {"model": agent.MODEL, "base_url": agent.BASE_URL,
+                "max_output_tokens": agent.MAX_OUTPUT_TOKENS, "thinking": "disabled",
+                "system_prompt_sha256": hashlib.sha256(agent.SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
+                "tool_schemas_sha256": hashlib.sha256(json.dumps(agent.tools.TOOL_SCHEMAS, ensure_ascii=False,
+                                                                 sort_keys=True).encode("utf-8")).hexdigest(),
+                "questions_sha256": hashlib.sha256(questions_path.read_bytes()).hexdigest()}
     records = []
     with records_path.open("x", encoding="utf-8", newline="\n") as stream:
         for index, row in enumerate(rows, 1):
-            record = evaluate_one(row, dry_run=dry_run)
+            record = evaluate_one(row, dry_run=dry_run, budget=budget)
+            record["run_config"] = metadata
             stream.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
             stream.flush()
             records.append(record)
             state = "PASS" if record["correct"] else "FAIL"
             print(f"[{index}/{len(rows)}] {row['id']} {state} ({record['duration_s']:.2f}s)", flush=True)
+            if record["budget_exceeded"]:
+                print("预算保护已停止后续题目。", flush=True)
+                break
     categories = {}
     for record in records:
         category = record.get("category") or record["expected_tool"] or "invalid_smiles"
@@ -322,7 +389,11 @@ def run_evaluation(questions_path=EVAL_DIR / "questions.jsonl",
                "finished_at": datetime.now(started.tzinfo).isoformat(timespec="seconds"),
                "questions_sha256": hashlib.sha256(questions_path.read_bytes()).hexdigest(),
                "questions_path": str(questions_path.resolve()),
+               "usage": _total_usage(records), "budget_stopped": any(row["budget_exceeded"] for row in records),
+               "budget_charged_cny": float(budget.spent) if budget is not None else None,
                "records_path": str(records_path), "summary_path": str(output_dir / "summary.md")}
+    # 时间戳摘要永不覆盖；summary.md 仅为该输出目录中的最新汇总。
+    _write_summary(summary, records, records_path.with_suffix(".summary.md"))
     _write_summary(summary, records, Path(summary["summary_path"]))
     return summary
 
@@ -333,19 +404,25 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="使用 mock，不联网；成绩不代表模型能力")
     parser.add_argument("--questions", type=Path, default=EVAL_DIR / "questions.jsonl", help="题集路径，默认仍为 v1")
     parser.add_argument("--output-dir", type=Path, help="报告目录；其他题集默认存入 results/<题集名>/")
+    parser.add_argument("--budget-cny", type=float, help="本轮预算（元），含每次请求费用上界预留；S4 总预算须扣除前轮花费")
     args = parser.parse_args()
     if not args.dry_run and not os.environ.get("LLM_API_KEY", "").strip():
         print("错误：缺少环境变量 LLM_API_KEY，请设置密钥或使用 --dry-run。", file=sys.stderr)
         return 1
     try:
         summary = run_evaluation(questions_path=args.questions, output_dir=args.output_dir,
-                                 limit=args.limit, dry_run=args.dry_run)
+                                 limit=args.limit, dry_run=args.dry_run, budget_cny=args.budget_cny)
     except (OSError, ValueError, TypeError) as exc:
         print(f"评测无法启动或报告无法保存：{_safe_error(exc)}", file=sys.stderr)
         return 1
     print(f"完成 {summary['total']} 题；总准确率 {summary['accuracy']:.2%}；"
           f"工具选择准确率 {summary['tool_accuracy']:.2%}")
     print(f"报告：{summary['summary_path']}")
+    if "usage" in summary:
+        print(f"Token 用量：{json.dumps(summary['usage'], ensure_ascii=False)}")
+        print(f"预算核算上界（元）：{summary['budget_charged_cny']}")
+    if summary.get("budget_stopped"):
+        return 2
     return 0
 
 

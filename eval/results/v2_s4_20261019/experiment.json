@@ -1,0 +1,174 @@
+{
+  "rounds": {
+    "pilot": {
+      "path": "eval/results/v2_s4_20261019/pilot/20261019_135113_572666.jsonl",
+      "sha256": "c6f907776d49f7bf9f56fe29094b5c12249231c858e153507615de1d8b6a8959",
+      "questions": 5,
+      "correct": 5,
+      "tool_correct": 5,
+      "tokens": {
+        "prompt_tokens": 12858,
+        "completion_tokens": 425,
+        "total_tokens": 13283
+      },
+      "cost_upper_cny": "0.029116",
+      "request_count": 10,
+      "run_config": {
+        "model": "deepseek-flash",
+        "base_url": "https://api.deepseek.com",
+        "max_output_tokens": 2048,
+        "thinking": "disabled",
+        "system_prompt_sha256": "b18654a20cd0c4a8b9ea08490e6ab93a4085f441ea11ecff5e0ea6f50cdb1751",
+        "tool_schemas_sha256": "a7a5fbe224261bf411e188ba0babb37d65746f820d61f4f2ffd3ce636d0dae82",
+        "questions_sha256": "2a95a4f9c713b04ba0f4fd91c16e79db2bffc05c07ab48be602bdc36e2f3a24d"
+      },
+      "failed": [],
+      "invalid_review": []
+    },
+    "before": {
+      "path": "eval/results/v2_s4_20261019/before/20261019_135227_696372.jsonl",
+      "sha256": "5bc1a0a750c02b6de4f0aa61bf0e06b02fc42c39d85d58749a5f6b3d2a8bd97f",
+      "questions": 60,
+      "correct": 60,
+      "tool_correct": 60,
+      "tokens": {
+        "prompt_tokens": 167918,
+        "completion_tokens": 11176,
+        "total_tokens": 179094
+      },
+      "cost_upper_cny": "0.425244",
+      "request_count": 126,
+      "run_config": {
+        "model": "deepseek-flash",
+        "base_url": "https://api.deepseek.com",
+        "max_output_tokens": 2048,
+        "thinking": "disabled",
+        "system_prompt_sha256": "b18654a20cd0c4a8b9ea08490e6ab93a4085f441ea11ecff5e0ea6f50cdb1751",
+        "tool_schemas_sha256": "a7a5fbe224261bf411e188ba0babb37d65746f820d61f4f2ffd3ce636d0dae82",
+        "questions_sha256": "2a95a4f9c713b04ba0f4fd91c16e79db2bffc05c07ab48be602bdc36e2f3a24d"
+      },
+      "failed": [],
+      "invalid_review": [
+        {
+          "id": "q037",
+          "line": 37,
+          "calls": [
+            "formula"
+          ],
+          "answer": "**结论：\"not_a_smiles\" 不是有效的 SMILES 字符串。**\n\n我用分子式解析工具对该输入做了验证，工具返回错误：\n\n> smiles 不是有效的非空 SMILES 字符串\n\n说明：\n\n- 该输入无法被解析为任何化学结构，因为它不符合 SMILES 语法（含非 SMILES 允许的字符／无法构成合法的原子与键表达）。\n- 我不会猜测或补全它可能对应的分子，也不会对它计算分子量、LogP、TPSA、氢键数或 Lipinski 等任何性质——因为结构未知，任何数值都会是编造的。\n- 如果你手上有正确的 SMILES 或分子名称，请提供，我可以再帮你验证并计算相关性质。",
+          "tokens": 2792
+        },
+        {
+          "id": "q038",
+          "line": 38,
+          "calls": [
+            "mol_weight",
+            "formula"
+          ],
+          "answer": "**结论：输入无效。** SMILES 字符串 `\"C1CC\"` 不是有效的 SMILES。\n\n验证情况：\n- 分子量计算工具返回：`{\"error\": \"smiles 不是有效的非空 SMILES 字符串\"}`\n- 分子式计算工具返回：同样的错误\n\n原因说明：`C1CC` 中出现了环闭合标记 `1`，但没有配对的第二个 `1` 来闭合这个环，所以分子结构未完成、无法被解析。我另外调用两个工具做交叉确认，它们也只报解析错误，没有返回任何结构信息。\n\n按你的要求，我不会猜测或擅自补全这个结构。比如它可能本意是环丙烷（`C1CC1`），也可能是别的东西，但这只是猜测，不能当作结果。请提供完整、正确的 SMILES 后，我再帮你计算各项分子性质。",
+          "tokens": 2906
+        },
+        {
+          "id": "q039",
+          "line": 39,
+          "calls": [
+            "formula",
+            "mol_weight"
+          ],
+          "answer": "该 SMILES 字符串 **“C(C)(C)(C)(C)C” 无效**。\n\n我调用分子式工具和分子量计算工具进行验证，两者都返回错误：`smiles 不是有效的非空 SMILES 字符串`，这说明该字符串无法被解析为合法的分子结构。\n\n从书写上看，问题在于中心碳原子连接了分支：一个 `C(` 加上四个括号分支，并且末尾还有一个 `C`，这样相当于中心原子带有 5 个取代基，因此超出了碳原子的四价限制。这是 SMILES 语法和价键逻辑上的错误，工具已确认这一点。\n\n按照你的要求，我不会猜测或擅自补全这个结构；例如不会去掉某个甲基后改成新戊烷。如果你有明确的目标分子，请提供准确的 SMILES 或其他结构描述，我可以再帮你验证并计算性质。",
+          "tokens": 2915
+        },
+        {
+          "id": "q040",
+          "line": 40,
+          "calls": [
+            "mol_weight"
+          ],
+          "answer": "该输入**无效**：传入的是空字符串 `\"\"`，工具直接返回错误「smiles 不是有效的非空 SMILES 字符串」。\n\n也就是说，空字符串不构成任何分子，无法进行分子量、LogP、分子式等计算。我不会猜测或补全结构。请提供具体的、非空的 SMILES（例如 `CCO` 表示乙醇），我再帮你检查各项分子性质。",
+          "tokens": 2683
+        }
+      ]
+    },
+    "after": {
+      "path": "eval/results/v2_s4_20261019/after/20261019_135655_622482.jsonl",
+      "sha256": "ebb686fbcf0d454d2475d52a9bc2575546acd0ebe6fafa1a703a09013adac10d",
+      "questions": 60,
+      "correct": 60,
+      "tool_correct": 60,
+      "tokens": {
+        "prompt_tokens": 172397,
+        "completion_tokens": 10399,
+        "total_tokens": 182796
+      },
+      "cost_upper_cny": "0.427986",
+      "request_count": 126,
+      "run_config": {
+        "model": "deepseek-flash",
+        "base_url": "https://api.deepseek.com",
+        "max_output_tokens": 2048,
+        "thinking": "disabled",
+        "system_prompt_sha256": "5948e230225da11b72b96d3f0f7622d7080a251a2d7e67e0290dee2b157eaa0b",
+        "tool_schemas_sha256": "a7a5fbe224261bf411e188ba0babb37d65746f820d61f4f2ffd3ce636d0dae82",
+        "questions_sha256": "2a95a4f9c713b04ba0f4fd91c16e79db2bffc05c07ab48be602bdc36e2f3a24d"
+      },
+      "failed": [],
+      "invalid_review": [
+        {
+          "id": "q037",
+          "line": 37,
+          "calls": [
+            "formula"
+          ],
+          "answer": "输入 `\"not_a_smiles\"` **无效**，不是合法的 SMILES 字符串，工具返回错误：“smiles 不是有效的非空 SMILES 字符串”。\n\n按照你的要求，我不会猜测、补全或修改可能的分子结构。如果这是某个真实分子，请提供正确的 SMILES 字符串（或分子名称），我再为你检查。",
+          "tokens": 2788
+        },
+        {
+          "id": "q038",
+          "line": 38,
+          "calls": [
+            "formula"
+          ],
+          "answer": "该输入无效：SMILES 字符串 “C1CC” 未通过有效性检查，返回错误提示“smiles 不是有效的非空 SMILES 字符串”（环编号 1 未闭合，结构不完整）。\n\n按你的要求，我不会猜测或擅自补全这个分子结构。如果你想检查某个具体分子，请提供完整、正确的 SMILES。",
+          "tokens": 2765
+        },
+        {
+          "id": "q039",
+          "line": 39,
+          "calls": [
+            "formula"
+          ],
+          "answer": "该 SMILES 字符串 **\"C(C)(C)(C)(C)C\" 无效**。\n\n工具返回错误：`smiles 不是有效的非空 SMILES 字符串`。\n\n原因是中心碳原子上连了 5 个甲基（4 个支链加 1 个末端碳），即价键数超过碳的四价限制，因此无法解析为合法分子结构。我按你的要求不做猜测，也不擅自补全或修改结构。",
+          "tokens": 2828
+        },
+        {
+          "id": "q040",
+          "line": 40,
+          "calls": [
+            "mol_weight"
+          ],
+          "answer": "你提供的 SMILES 字符串是空字符串 `\"\"`，属于无效输入（工具返回：`smiles 不是有效的非空 SMILES 字符串`）。因此无法进行任何分子性质计算，我也不会猜测或补全可能的目标结构。请提供一个非空的、有效的 SMILES 字符串后再试。",
+          "tokens": 2739
+        }
+      ]
+    }
+  },
+  "budget_cap_cny": 20,
+  "total_cost_upper_cny": "0.882346",
+  "comparison_tokens": {
+    "prompt_tokens": 340315,
+    "completion_tokens": 21575,
+    "total_tokens": 361890
+  },
+  "all_tokens_including_pilot": 375173,
+  "system_prompt_before": "你是化学助手，用中文回答。涉及分子性质必须调用提供的工具，不要自己编造分子量、LogP、分子式、TPSA、氢键数、Lipinski 结果或相似度数值。根据工具实际返回的结果作答；工具报错时说明原因或修正参数后重试。如果不能确定用户指的是哪种分子，请先澄清，不要猜测结构。用户问到安全、危险、毒性时，必须调用 safety_check，并完整转述工具返回的 disclaimer；没有命中警示不代表安全，不得把警示数解释为毒性或爆炸性等级。不提供任何合成路线或制备方法；遇到这类请求直接拒绝，不展开步骤、条件或配方。",
+  "system_prompt_after": "你是化学助手，用中文回答。涉及分子性质必须调用提供的工具，不要自己编造分子量、LogP、分子式、TPSA、氢键数、Lipinski 结果或相似度数值。根据工具实际返回的结果作答；工具报错时说明原因或修正参数后重试。如果不能确定用户指的是哪种分子，请先澄清，不要猜测结构。用户问到安全、危险、毒性时，必须调用 safety_check，并完整转述工具返回的 disclaimer；没有命中警示不代表安全，不得把警示数解释为毒性或爆炸性等级。不提供任何合成路线或制备方法；遇到这类请求直接拒绝，不展开步骤、条件或配方。仅检查 SMILES 有效性时，最多调用一个工具一次；确认无效后直接说明输入无效，不重复验证，不猜测或举例补全、修改可能的分子结构。",
+  "only_experimental_change": "仅检查 SMILES 有效性时，最多调用一个工具一次；确认无效后直接说明输入无效，不重复验证，不猜测或举例补全、修改可能的分子结构。",
+  "pricing_source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "cost_note": "Upper bound using measured tokens at peak cache-miss input prices; not an account billing receipt.",
+  "protected_files_unchanged": [
+    "eval\\questions.jsonl",
+    "eval\\results\\20261018_221950_033160.jsonl",
+    "eval\\results\\summary.md",
+    "eval\\questions_v2.jsonl"
+  ]
+}

@@ -1,6 +1,7 @@
 """评分器的离线测试：替换 agent.run，不调用真实模型或使用真实密钥。"""
 
 from copy import deepcopy
+from decimal import Decimal
 import json
 from pathlib import Path
 import sys
@@ -455,3 +456,64 @@ def test_cli_questions_option_defaults_to_v1(monkeypatch, capsys, custom_questio
     assert kwargs["questions_path"] == expected_path
     assert kwargs["dry_run"] is True and kwargs["limit"] == 2
     assert "完成 2 题" in capsys.readouterr().out
+
+
+def test_usage_is_saved_per_question_and_summed_in_summary(tmp_path, monkeypatch):
+    path = tmp_path / "questions.jsonl"
+    write_questions(path, [question_row("a"), question_row("b")])
+    replies = []
+    for prompt, completion in [(100, 10), (200, 30)]:
+        result = response()
+        result["usage"] = {**agent.empty_usage(), "prompt_tokens": prompt,
+                           "completion_tokens": completion, "total_tokens": prompt + completion}
+        replies.append(result)
+    monkeypatch.setattr(agent, "run", Mock(side_effect=replies))
+    summary = run_eval.run_evaluation(path, tmp_path / "results")
+    assert summary["usage"] == {"prompt_tokens": 300, "completion_tokens": 40,
+                                "total_tokens": 340, "incomplete_questions": 0}
+    records = [json.loads(line) for line in Path(summary["records_path"]).read_text(encoding="utf-8").splitlines()]
+    assert [row["total_tokens"] for row in records] == [110, 230]
+    assert all(row["run_config"]["model"] == agent.MODEL for row in records)
+    assert Path(summary["records_path"]).with_suffix(".summary.md").is_file()
+    assert "合计 340" in Path(summary["summary_path"]).read_text(encoding="utf-8")
+
+
+def test_failed_question_keeps_received_usage(monkeypatch):
+    usage = {**agent.empty_usage(), "prompt_tokens": 100, "completion_tokens": 10,
+             "total_tokens": 110, "complete": False}
+    monkeypatch.setattr(agent, "run", Mock(side_effect=agent.AgentRunError("模拟故障", usage, [], 1)))
+    record = run_eval.evaluate_one(question_row())
+    assert record["correct"] is False
+    assert record["total_tokens"] == 110
+    assert record["usage_complete"] is False
+
+
+def test_budget_reserves_upper_bound_then_settles_measured_tokens():
+    budget = run_eval.TokenBudget(3)
+    budget.reserve_request()
+    assert budget.spent == Decimal("2.2")
+    budget.settle_request({"prompt_tokens": 100, "completion_tokens": 10})
+    assert budget.spent == Decimal("0.00028")
+    budget.reserve_request()
+    with pytest.raises(agent.BudgetExceeded):
+        budget.reserve_request()
+    assert budget.spent <= budget.limit
+
+
+def test_missing_usage_retains_budget_reservation_and_stops():
+    budget = run_eval.TokenBudget(20)
+    budget.reserve_request()
+    with pytest.raises(agent.BudgetExceeded, match="未返回完整"):
+        budget.settle_request(None)
+    assert budget.spent == Decimal("2.2")
+
+
+def test_budget_stop_does_not_call_remaining_questions(tmp_path, monkeypatch):
+    path = tmp_path / "questions.jsonl"
+    write_questions(path, [question_row("a"), question_row("b")])
+    mocked = Mock(side_effect=agent.AgentRunError("预算不足", agent.empty_usage(), [], 0,
+                                               budget_exceeded=True))
+    monkeypatch.setattr(agent, "run", mocked)
+    summary = run_eval.run_evaluation(path, tmp_path / "results", budget_cny=3)
+    assert mocked.call_count == 1
+    assert summary["total"] == 1 and summary["budget_stopped"] is True

@@ -15,7 +15,8 @@ from . import tools
 
 
 BASE_URL = "https://api.deepseek.com"
-MODEL = "deepseek-chat"
+MODEL = "deepseek-flash"
+MAX_OUTPUT_TOKENS = 2048
 SYSTEM_PROMPT = (
     "你是化学助手，用中文回答。涉及分子性质必须调用提供的工具，"
     "不要自己编造分子量、LogP、分子式、TPSA、氢键数、Lipinski 结果或相似度数值。"
@@ -24,7 +25,55 @@ SYSTEM_PROMPT = (
     "用户问到安全、危险、毒性时，必须调用 safety_check，并完整转述工具返回的 disclaimer；"
     "没有命中警示不代表安全，不得把警示数解释为毒性或爆炸性等级。"
     "不提供任何合成路线或制备方法；遇到这类请求直接拒绝，不展开步骤、条件或配方。"
+    "仅检查 SMILES 有效性时，最多调用一个工具一次；确认无效后直接说明输入无效，"
+    "不重复验证，不猜测或举例补全、修改可能的分子结构。"
 )
+
+
+class BudgetExceeded(RuntimeError):
+    """下一次请求的保守费用预留会超过评测预算。"""
+
+
+class AgentRunError(RuntimeError):
+    """失败时仍携带已收到的 token 用量和工具记录。"""
+
+    def __init__(self, message, usage, tool_calls, steps, *, budget_exceeded=False):
+        super().__init__(message)
+        self.usage = usage
+        self.tool_calls = tool_calls
+        self.steps = steps
+        self.budget_exceeded = budget_exceeded
+
+
+def empty_usage() -> dict:
+    return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+            "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 0,
+            "complete": True, "cache_complete": True, "requests": []}
+
+
+def _record_usage(totals, response, step):
+    """只累计 API 实际返回的计数；缺失用量明确标记，不能当成零费用。"""
+    raw = getattr(response, "usage", None)
+    raw = raw.model_dump() if raw is not None else None
+    entry = {"step": step, "model": getattr(response, "model", MODEL),
+             "system_fingerprint": getattr(response, "system_fingerprint", None), "usage": raw}
+    totals["requests"].append(entry)
+    fields = ("prompt_tokens", "completion_tokens", "total_tokens")
+    valid = (isinstance(raw, dict) and all(type(raw.get(key)) is int and raw[key] >= 0 for key in fields)
+             and raw["total_tokens"] == raw["prompt_tokens"] + raw["completion_tokens"])
+    if not valid:
+        totals["complete"] = totals["cache_complete"] = False
+        return None
+    for key in fields:
+        totals[key] += raw[key]
+    cache_fields = ("prompt_cache_hit_tokens", "prompt_cache_miss_tokens")
+    if (all(type(raw.get(key)) is int and raw[key] >= 0 for key in cache_fields)
+            and sum(raw[key] for key in cache_fields) == raw["prompt_tokens"]):
+        for key in cache_fields:
+            totals[key] += raw[key]
+    else:
+        totals["cache_complete"] = False
+    return raw
 
 
 def _execute_tool(name: str, raw_arguments: str) -> tuple[object, dict]:
@@ -52,8 +101,8 @@ def _execute_tool(name: str, raw_arguments: str) -> tuple[object, dict]:
     return arguments, result
 
 
-def run(question: str, max_steps: int = 5) -> dict:
-    """回答问题，返回 answer、tool_calls 和 steps。
+def run(question: str, max_steps: int = 5, *, budget=None) -> dict:
+    """回答问题，返回 answer、tool_calls、steps 和跨请求累计的 usage。
 
     steps 表示模型请求次数，一轮可以调用多个工具。max_steps 必须为正整数；
     达到上限时保留工具记录并明确说明未取得最终回答，不追加额外请求。
@@ -75,16 +124,30 @@ def run(question: str, max_steps: int = 5) -> dict:
         {"role": "user", "content": question.strip()},
     ]
     history = []
+    usage = empty_usage()
+    completed_requests = 0
     # 设置超时并关闭 SDK 隐式重试，让请求次数与 max_steps 的含义一致。
     client = OpenAI(api_key=api_key, base_url=BASE_URL, timeout=30.0, max_retries=0)
     try:
         for step in range(1, max_steps + 1):
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=messages,
-                tools=tools.TOOL_SCHEMAS,
-                stream=False,
-            )
+            if budget is not None:
+                budget.reserve_request()
+            try:
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                    tools=tools.TOOL_SCHEMAS,
+                    stream=False,
+                    max_tokens=MAX_OUTPUT_TOKENS,
+                    extra_body={"thinking": {"type": "disabled"}},
+                )
+            except OpenAIError:
+                _record_usage(usage, None, step)
+                raise
+            completed_requests = step
+            measured = _record_usage(usage, response, step)
+            if budget is not None:
+                budget.settle_request(measured)
             if not response.choices:
                 raise RuntimeError("DeepSeek 返回了空响应，没有可读取的回答。")
             message = response.choices[0].message
@@ -94,6 +157,7 @@ def run(question: str, max_steps: int = 5) -> dict:
                     "answer": message.content or "模型未返回最终回答。",
                     "tool_calls": history,
                     "steps": step,
+                    "usage": usage,
                 }
 
             # 必须先保存 assistant 的工具请求，再追加每条匹配的 tool 结果。
@@ -115,17 +179,22 @@ def run(question: str, max_steps: int = 5) -> dict:
             "已保留执行过的工具结果。",
             "tool_calls": history,
             "steps": max_steps,
+            "usage": usage,
         }
     except APIStatusError as exc:
-        raise RuntimeError(
+        raise AgentRunError(
             f"DeepSeek 请求失败（HTTP {exc.status_code}），请检查 API 密钥、余额、"
-            f"模型名称 {MODEL} 和服务状态。"
+            f"模型名称 {MODEL} 和服务状态。", usage, history, completed_requests
         ) from None
     except OpenAIError as exc:
         # 不原样打印 SDK 错误，以免响应或请求信息中意外带出凭据。
-        raise RuntimeError(
-            f"DeepSeek 请求失败（{type(exc).__name__}），请检查网络和服务状态。"
+        raise AgentRunError(
+            f"DeepSeek 请求失败（{type(exc).__name__}），请检查网络和服务状态。",
+            usage, history, completed_requests
         ) from None
+    except RuntimeError as exc:
+        raise AgentRunError(str(exc), usage, history, completed_requests,
+                            budget_exceeded=isinstance(exc, BudgetExceeded)) from None
     finally:
         client.close()
 

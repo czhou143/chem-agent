@@ -14,12 +14,13 @@ from chem_agent import agent, tools
 ASPIRIN = "CC(=O)Oc1ccccc1C(=O)O"
 
 
-def model_response(content=None, tool_calls=None):
+def model_response(content=None, tool_calls=None, usage=None):
     """构造与 SDK 相同的响应对象，不发送网络请求。"""
     return ChatCompletion(
         id="mock-completion",
         created=0,
-        model="deepseek-chat",
+        model=agent.MODEL,
+        usage=usage,
         object="chat.completion",
         choices=[
             {
@@ -81,7 +82,7 @@ def test_tool_result_is_sent_back_before_final_answer(mock_model):
 
     result = agent.run("阿司匹林的分子量是多少？")
 
-    assert result == {
+    assert {key: result[key] for key in ("answer", "tool_calls", "steps")} == {
         "answer": answer,
         "tool_calls": [
             {
@@ -96,7 +97,9 @@ def test_tool_result_is_sent_back_before_final_answer(mock_model):
     assert constructor.call_args.kwargs["base_url"] == "https://api.deepseek.com"
     assert client.chat.completions.create.call_count == 2
     for request in requests:
-        assert request["model"] == "deepseek-chat"
+        assert request["model"] == "deepseek-flash"
+        assert request["max_tokens"] == 2048
+        assert request["extra_body"] == {"thinking": {"type": "disabled"}}
         assert request["tools"] == tools.TOOL_SCHEMAS
 
     first_messages = requests[0]["messages"]
@@ -244,3 +247,59 @@ def test_sdk_failure_gives_clear_error_without_exposing_api_key(mock_model):
     assert str(error.value).strip()
     assert "test-key" not in str(error.value)
     assert client.chat.completions.create.call_count == 1
+
+
+def token_usage(prompt, completion, hit):
+    return {"prompt_tokens": prompt, "completion_tokens": completion,
+            "total_tokens": prompt + completion, "prompt_cache_hit_tokens": hit,
+            "prompt_cache_miss_tokens": prompt - hit}
+
+
+def test_usage_sums_all_model_requests_and_keeps_raw_usage(mock_model):
+    first, second = token_usage(100, 10, 20), token_usage(200, 30, 80)
+    mock_model(model_response(tool_calls=[tool_call("formula", '{"smiles":"CCO"}')], usage=first),
+               model_response("乙醇分子式为 C2H6O。", usage=second))
+    usage = agent.run("乙醇的分子式？")["usage"]
+    assert usage["prompt_tokens"] == 300
+    assert usage["completion_tokens"] == 40
+    assert usage["total_tokens"] == 340
+    assert usage["prompt_cache_hit_tokens"] == 100
+    assert usage["prompt_cache_miss_tokens"] == 200
+    assert usage["complete"] is usage["cache_complete"] is True
+    assert len(usage["requests"]) == 2
+    assert usage["requests"][0]["usage"]["prompt_tokens"] == 100
+
+
+def test_usage_at_max_steps_is_not_lost(mock_model):
+    mock_model(model_response(tool_calls=[tool_call("formula", '{"smiles":"CCO"}')],
+                               usage=token_usage(100, 10, 0)))
+    result = agent.run("分子式？", max_steps=1)
+    assert result["usage"]["total_tokens"] == 110
+    assert result["usage"]["complete"] is True
+
+
+def test_partial_usage_survives_later_api_failure(mock_model):
+    mock_model(model_response(tool_calls=[tool_call("formula", '{"smiles":"CCO"}')],
+                               usage=token_usage(100, 10, 0)), OpenAIError("test-key"))
+    with pytest.raises(agent.AgentRunError) as error:
+        agent.run("分子式？")
+    assert error.value.usage["total_tokens"] == 110
+    assert error.value.usage["complete"] is False
+    assert len(error.value.usage["requests"]) == 2
+    assert error.value.tool_calls[0]["result"] == {"formula": "C2H6O"}
+    assert "test-key" not in str(error.value)
+
+
+def test_missing_usage_is_explicitly_incomplete(mock_model):
+    mock_model(model_response("你好"))
+    assert agent.run("你好")["usage"]["complete"] is False
+
+
+def test_budget_refusal_stops_before_network_request(mock_model):
+    _, client, _ = mock_model()
+    budget = MagicMock()
+    budget.reserve_request.side_effect = agent.BudgetExceeded("预算不足")
+    with pytest.raises(agent.AgentRunError) as error:
+        agent.run("你好", budget=budget)
+    assert error.value.budget_exceeded is True
+    client.chat.completions.create.assert_not_called()

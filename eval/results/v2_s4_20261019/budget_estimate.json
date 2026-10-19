@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-19",
+  "pricing_source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "model_migration_source": "https://api-docs.deepseek.com/zh-cn/updates/",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "max_output_tokens_per_request": 2048,
+  "s4_budget_cny": 20,
+  "peak_cny_per_million_tokens": {
+    "cache_hit_input": 0.04,
+    "cache_miss_input": 2,
+    "output": 8
+  },
+  "budget_method": "All input tokens priced as peak cache misses; ignores all discounts. Reserve 2.2 CNY before each request, settle with API usage; retain reservation for unknown usage. This is an upper-bound calculation, not an account billing receipt.",
+  "pilot_file": "pilot/20261019_135113_572666.jsonl",
+  "pilot_questions": 5,
+  "pilot_prompt_tokens": 12858,
+  "pilot_completion_tokens": 425,
+  "pilot_total_tokens": 13283,
+  "pilot_cache_hit_tokens": 9856,
+  "pilot_cache_miss_tokens": 3002,
+  "pilot_upper_cny": 0.029116,
+  "one_60_question_upper_estimate_cny": 0.349392,
+  "two_60_question_upper_estimate_cny": 0.698784,
+  "pilot_plus_two_60_question_upper_estimate_cny": 0.7279,
+  "estimate_assumption": "Extrapolated from the mean of the first five questions; later safety/multi-tool questions may use more tokens. Proceed only if the two-run estimate is <=20 CNY; runtime budget still applies."
+}
