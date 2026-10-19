@@ -35,6 +35,12 @@
 
 依据：[咖啡因分子式记录](eval/results/20261018_221950_033160.jsonl#L12)、[HBD/HBA 记录](eval/results/20261018_221950_033160.jsonl#L22)、[Lipinski 记录](eval/results/20261018_221950_033160.jsonl#L28)及 [RDKit 对两种计数的说明](https://www.rdkit.org/docs/cppapi/Lipinski_8h.html)。
 
+## 演示
+
+下图是 `examples/demo.py` 的三道题终端输出拼图，依次展示阿司匹林分子量、咖啡因分子式、乙醇与 1-丙醇的 Morgan 指纹 Tanimoto 相似度，包含工具调用参数、计算结果和最终回答。
+
+![examples/demo.py 三道题的终端输出](docs/images/demo.png)
+
 ## 架构
 
 **问题 → DeepSeek 选工具 → RDKit 本地计算 → 工具结果回传 DeepSeek → 中文回答**
@@ -253,6 +259,12 @@ A chemistry assistant that uses DeepSeek to select tools and RDKit to compute mo
 Both `hbd_hba` and `lipinski` use RDKit's `Lipinski.NumHDonors` / `Lipinski.NumHAcceptors`. Saved caffeine results give **HBA=3** (q022/q028). Its saved formula **C8H10N4O2** (q012) gives **N+O=6**, corresponding to the original Lipinski acceptor-count approximation. These are different definitions, not interchangeable values; this project's screening uses the RDKit hydrogen-bond definitions.
 
 Sources: saved [formula](eval/results/20261018_221950_033160.jsonl#L12), [HBD/HBA](eval/results/20261018_221950_033160.jsonl#L22), [Lipinski result](eval/results/20261018_221950_033160.jsonl#L28), and [RDKit's descriptor definitions](https://www.rdkit.org/docs/cppapi/Lipinski_8h.html).
+
+### Demo
+
+This image combines the terminal output of three questions from `examples/demo.py`: aspirin's molecular weight, caffeine's molecular formula, and the Morgan-fingerprint Tanimoto similarity between ethanol and 1-propanol. It shows tool-call arguments, computed results, and final answers.
+
+![Terminal output of the three examples/demo.py questions](docs/images/demo.png)
 
 ### Architecture
 
