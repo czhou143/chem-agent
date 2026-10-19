@@ -1,0 +1,2 @@
+# Keep the versioned v2 dataset hash stable across Windows and Unix checkouts.
+eval/questions_v2.jsonl text eol=lf

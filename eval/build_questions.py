@@ -1,9 +1,10 @@
-"""用本地 RDKit 工具生成、校验 40 道中文评测题，不调用模型或网络。
+"""保留 v1 的 40 题，生成并校验 v2 的 60 题，不调用模型或网络。
 
-生成：python eval/build_questions.py
-只校验已有文件：python eval/build_questions.py --check
+生成 v2（不改写 v1）：python eval/build_questions.py
+同时校验 v1/v2：python eval/build_questions.py --check
 
-expected_value 保存工具实际返回的完整字典，不手填答案。tolerance 为浮点数
+expected_value 来自工具实算：单工具保存字典，安全题提取警示名称列表，
+多工具按调用顺序保存结果字典列表，不手填答案。tolerance 为浮点数
 评分时的绝对误差；整数、布尔值、分子式应精确匹配。生成器自身会精确重算，
 以发现手改的答案。非法题的 expected_tool=null 表示不指定工具，并非禁止调用
 工具；未来评分应检查回答是否说明输入无效，而不是逐字匹配 error 的措辞。
@@ -11,6 +12,8 @@ expected_value 保存工具实际返回的完整字典，不手填答案。toler
 
 import argparse
 from collections import Counter
+from copy import deepcopy
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -26,6 +29,7 @@ from chem_agent import tools
 
 
 OUTPUT_PATH = Path(__file__).resolve().with_name("questions.jsonl")
+V2_OUTPUT_PATH = Path(__file__).resolve().with_name("questions_v2.jsonl")
 FIELDS = {"id", "question", "expected_tool", "expected_value", "tolerance"}
 
 # 名称/结构参考 PubChem：药物使用中性分子，布洛芬不指定对映异构体。
@@ -99,6 +103,40 @@ TOLERANCES = {
     "similarity": 0.000001,
     None: 0,
 }
+
+# v2 只定义输入和提问方式，不存放手填的标准答案。
+SAFETY_CASES = (
+    ("2,4,6-三硝基甲苯（TNT）", "Cc1c([N+](=O)[O-])cc([N+](=O)[O-])cc1[N+](=O)[O-]"),
+    MOLECULES["ethanol"],
+    MOLECULES["glucose"],
+    ("乙酰氯", "CC(=O)Cl"),
+    ("叠氮甲烷", "CN=[N+]=[N-]"),
+    ("硝基苯", "O=[N+]([O-])c1ccccc1"),
+    ("异氰酸甲酯", "CN=C=O"),
+    ("环氧乙烷", "C1CO1"),
+)
+MULTI_STEP_CASES = (
+    (("mol_weight", "aspirin"), ("lipinski", "aspirin"),
+     "请先调用分子量工具，再调用 Lipinski 工具，列出两次结果并判断筛选是否通过。"),
+    (("logp", "ibuprofen"), ("logp", "caffeine"),
+     "请先计算布洛芬的 LogP，再计算咖啡因的 LogP，列出两次结果并比较谁更大。"),
+    (("formula", "ethanol"), ("mol_weight", "ethanol"),
+     "请先查询分子式，再计算分子量，分别标注结果，避免把两种信息混在一起。"),
+    (("tpsa", "glucose"), ("hbd_hba", "glucose"),
+     "请先计算 TPSA，再统计氢键供体和受体数，依次列出结果。"),
+    (("hbd_hba", "caffeine"), ("tpsa", "caffeine"),
+     "请先统计氢键供体和受体数，再计算 TPSA，依次列出结果。"),
+    (("formula", "paracetamol"), ("lipinski", "paracetamol"),
+     "请先查询分子式，再调用 Lipinski 工具完成筛选，依次列出结果。"),
+)
+CONFUSABLE_CASES = (
+    ("formula", "aspirin", "我需要元素组成的分子式，不是以 g/mol 表示的分子量，请只查询分子式。"),
+    ("mol_weight", "caffeine", "我需要以 g/mol 表示的分子量，不是 C、H、N、O 个数组成的分子式。"),
+    ("tpsa", "ibuprofen", "请给出单位为平方埃的拓扑极性表面积 TPSA，不要给脂水分配系数 LogP。"),
+    ("logp", "ethanol", "我要 Wildman-Crippen 预测 LogP，不是以平方埃计的 TPSA。"),
+    ("hbd_hba", "aspirin", "重点告诉我氢键供体 HBD 有几个，同时标注受体 HBA，注意不要把供体和受体的数目交换。"),
+    ("hbd_hba", "caffeine", "重点告诉我氢键受体 HBA 有几个，同时标注供体 HBD，不要将受体回答成供体。"),
+)
 
 
 def _question_specs() -> list[dict]:
@@ -215,33 +253,97 @@ def validate_questions(rows: list[dict]) -> None:
             raise ValueError(f"{row['id']} 与题目模板或当前工具计算结果不一致，请重新生成。")
 
 
-def _read_questions() -> list[dict]:
-    lines = OUTPUT_PATH.read_text(encoding="utf-8").splitlines()
+def _read_questions(path=None) -> list[dict]:
+    lines = (OUTPUT_PATH if path is None else Path(path)).read_text(encoding="utf-8").splitlines()
     return [json.loads(line) for line in lines]
 
 
+def _calculate(tool_name: str, smiles: str) -> dict:
+    result = tools.TOOLS[tool_name](smiles)
+    if "error" in result:
+        raise ValueError(f"v2 输入计算失败：{tool_name}，{result['error']}")
+    return result
+
+
+def build_questions_v2() -> list[dict]:
+    """复制并重算校验 v1，追加 8 道安全、6 道多工具、6 道易混淆题。"""
+    base = _read_questions()
+    validate_questions(base)
+    rows = deepcopy(base)
+
+    def append(question, tool_name, value, category, tolerance, expected_tools=None):
+        row = {"id": f"q{len(rows) + 1:03d}", "question": question,
+               "expected_tool": tool_name, "expected_value": value,
+               "tolerance": tolerance, "category": category}
+        if expected_tools is not None:
+            row["expected_tools"] = expected_tools
+        rows.append(row)
+
+    for name, smiles in SAFETY_CASES:
+        result = _calculate("safety_check", smiles)
+        names = sorted(alert["name"] for alert in result["alerts"])
+        append(f"请对{name}做安全相关的药物化学结构警示筛查，列出命中的警示名称；"
+               f"没有警示时明确说明，并转述筛查免责声明。SMILES：`{smiles}`。",
+               "safety_check", names, "safety", 0)
+
+    for first, second, prompt in MULTI_STEP_CASES:
+        steps = (first, second)
+        inputs = "；".join(f"第{index}步：{MOLECULES[molecule][0]}，SMILES：`{MOLECULES[molecule][1]}`"
+                          for index, (_, molecule) in enumerate(steps, 1))
+        results = [_calculate(name, MOLECULES[molecule][1]) for name, molecule in steps]
+        append(f"{prompt}请按要求顺序完成两次工具调用。{inputs}。", first[0], results,
+               "multi_step", max(TOLERANCES[name] for name, _ in steps),
+               expected_tools=[name for name, _ in steps])
+
+    for tool_name, molecule, prompt in CONFUSABLE_CASES:
+        name, smiles = MOLECULES[molecule]
+        append(f"{name}，SMILES：`{smiles}`。{prompt}", tool_name,
+               _calculate(tool_name, smiles), "confusable", TOLERANCES[tool_name])
+    return rows
+
+
+def validate_questions_v2(rows: list[dict]) -> None:
+    """对照模板和工具重算结果校验全部字段；v2 的前 40 题保持 v1 格式。"""
+    if not isinstance(rows, list) or len(rows) != 60:
+        raise ValueError("v2 必须恰好包含 60 道题。")
+    if not all(isinstance(row, dict) and isinstance(row.get("id"), str)
+               and isinstance(row.get("question"), str) for row in rows):
+        raise ValueError("v2 每道题必须为字典，id 和 question 必须为字符串。")
+    validate_questions(rows[:40])
+    if len({row.get("id") for row in rows}) != 60:
+        raise ValueError("v2 题目 id 必须唯一。")
+    if len({row.get("question") for row in rows}) != 60:
+        raise ValueError("v2 题干必须唯一。")
+    reference = build_questions_v2()
+    for row, expected in zip(rows, reference):
+        if json.dumps(row, sort_keys=True, ensure_ascii=False, allow_nan=False) != json.dumps(
+            expected, sort_keys=True, ensure_ascii=False, allow_nan=False
+        ):
+            raise ValueError(f"v2 的 {expected['id']} 与模板或工具实算结果不一致。")
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="用 RDKit 生成并校验 40 道中文评测题")
-    parser.add_argument("--check", action="store_true", help="只校验已有 questions.jsonl，不改写文件")
+    parser = argparse.ArgumentParser(description="保留 v1，生成 60 题 v2；输出 v2 文件 SHA256")
+    parser.add_argument("--check", action="store_true", help="同时校验已有 v1 和 v2，不改写文件")
     args = parser.parse_args()
     try:
-        if args.check:
-            rows = _read_questions()
-            validate_questions(rows)
-        else:
-            rows = build_questions()
-            validate_questions(rows)
-            text = "\n".join(json.dumps(row, ensure_ascii=False, allow_nan=False) for row in rows) + "\n"
-            OUTPUT_PATH.write_text(text, encoding="utf-8", newline="\n")
-            validate_questions(_read_questions())
+        rows = _read_questions()
+        validate_questions(rows)
+        if not args.check:
+            v2_rows = build_questions_v2()
+            validate_questions_v2(v2_rows)
+            text = "\n".join(json.dumps(row, ensure_ascii=False, allow_nan=False) for row in v2_rows) + "\n"
+            V2_OUTPUT_PATH.write_text(text, encoding="utf-8", newline="\n")
+        validate_questions_v2(_read_questions(V2_OUTPUT_PATH))
     except (OSError, ValueError) as exc:
         print(f"题库生成或校验失败：{exc}", file=sys.stderr)
         return 1
 
+    print(f"v1 校验通过：{OUTPUT_PATH}（40 题，未改写）")
     action = "校验通过" if args.check else "已生成并校验"
-    print(f"{action}：{OUTPUT_PATH}（{len(rows)} 题）")
-    for tool_name, count in Counter(row["expected_tool"] for row in rows).items():
-        print(f"  {tool_name or '非法 SMILES'}: {count}")
+    print(f"v2 {action}：{V2_OUTPUT_PATH}（60 题）")
+    print("v2 分布：原 40 题 + 安全检查 8 题 + 多步骤 6 题 + 易混淆 6 题")
+    print(f"v2 SHA256：{hashlib.sha256(V2_OUTPUT_PATH.read_bytes()).hexdigest()}")
     return 0
 
 

@@ -3,6 +3,7 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import sys
 from unittest.mock import Mock
 
 import pytest
@@ -296,3 +297,161 @@ def test_dry_run_never_calls_agent_or_overwrites_live_report(tmp_path, monkeypat
     assert all(record["mode"] == "dry-run" for record in records)
     assert [record["expected_value"] for record in records] == [row["expected_value"] for row in rows]
     assert rows == original_rows
+
+
+def multi_question(*, repeated_tool=False):
+    row = question_row("multi-question")
+    row.update(category="multi_step", expected_tool="formula",
+               expected_tools=["formula", "mol_weight"],
+               expected_value=[{"formula": "C2H6O"}, {"mol_weight": 46.07}])
+    if repeated_tool:
+        row.update(expected_tool="logp", expected_tools=["logp", "logp"],
+                   expected_value=[{"logp": 3.0}, {"logp": 1.0}])
+    return row
+
+
+def multi_response(row):
+    return {"answer": "两次计算已完成。", "steps": 3,
+            "tool_calls": [{"name": name, "arguments": {}, "result": deepcopy(value)}
+                           for name, value in zip(row["expected_tools"], row["expected_value"])]}
+
+
+@pytest.mark.parametrize("repeated_tool", [False, True])
+def test_multi_tool_ordered_results_pass(repeated_tool):
+    row = multi_question(repeated_tool=repeated_tool)
+    scored = run_eval.score_response(row, multi_response(row))
+    assert scored["tool_correct"] is scored["value_correct"] is scored["correct"] is True
+
+
+@pytest.mark.parametrize("change", ["reversed", "missing", "extra", "wrong_name", "malformed"])
+def test_multi_tool_sequence_must_match_exactly(change):
+    row = multi_question()
+    result = multi_response(row)
+    calls = result["tool_calls"]
+    if change == "reversed":
+        calls.reverse()
+    elif change == "missing":
+        calls.pop()
+    elif change == "extra":
+        calls.append(deepcopy(calls[-1]))
+    elif change == "wrong_name":
+        calls[-1]["name"] = "tpsa"
+    else:
+        result["tool_calls"] = None
+    scored = run_eval.score_response(row, result)
+    assert scored["tool_correct"] is False
+    assert scored["correct"] is False
+
+
+@pytest.mark.parametrize("change", ["outside_tolerance", "missing_result", "tool_error", "string_mismatch"])
+def test_multi_tool_checks_each_result(change):
+    row = multi_question()
+    result = multi_response(row)
+    calls = result["tool_calls"]
+    if change == "outside_tolerance":
+        calls[1]["result"]["mol_weight"] += 0.02
+    elif change == "missing_result":
+        del calls[1]["result"]
+    elif change == "tool_error":
+        calls[1]["result"] = {"error": "计算失败"}
+    else:
+        calls[0]["result"]["formula"] = "C2H6"
+    scored = run_eval.score_response(row, result)
+    assert scored["tool_correct"] is True
+    assert scored["value_correct"] is scored["correct"] is False
+
+
+def test_multi_tool_accepts_tolerance_and_rejects_swapped_repeated_tool_values():
+    row = multi_question(repeated_tool=True)
+    result = multi_response(row)
+    result["tool_calls"][1]["result"]["logp"] += row["tolerance"]
+    assert run_eval.score_response(row, result)["correct"] is True
+    result["tool_calls"].reverse()
+    scored = run_eval.score_response(row, result)
+    assert scored["tool_correct"] is True  # 两次名称相同，必须靠逐项结果发现交换。
+    assert scored["value_correct"] is scored["correct"] is False
+
+
+@pytest.mark.parametrize("expected,actual,correct", [
+    ([], {"alerts": []}, True),
+    (["a", "b"], {"alerts": [{"name": "b"}, {"name": "a"}]}, True),
+    (["a", "a"], {"alerts": [{"name": "a"}]}, False),
+    (["a"], {"alerts": [{"name": "b"}]}, False),
+    ([], {"alerts": [{"name": "a"}]}, False),
+    ([], {}, False),
+    ([], {"error": "输入无效", "alerts": []}, False),
+    (["a"], {"alerts": [{"catalog": "BRENK"}]}, False),
+])
+def test_safety_scoring_compares_alert_names(expected, actual, correct):
+    row = question_row()
+    row.update(expected_tool="safety_check", expected_value=expected, tolerance=0)
+    result = response(name="safety_check")
+    result["tool_calls"][0]["result"] = actual
+    assert run_eval.score_response(row, result)["correct"] is correct
+
+
+@pytest.mark.parametrize("change", ["names_string", "unknown", "missing_value", "wrong_first", "single", "non_dict_value"])
+def test_loader_rejects_malformed_multi_tool_rows(tmp_path, change):
+    row = multi_question()
+    if change == "names_string":
+        row["expected_tools"] = "formula"
+    elif change == "unknown":
+        row["expected_tools"][1] = "unknown_tool"
+    elif change == "missing_value":
+        row["expected_value"].pop()
+    elif change == "wrong_first":
+        row["expected_tool"] = "mol_weight"
+    elif change == "single":
+        row["expected_tools"].pop()
+    else:
+        row["expected_value"][1] = 46.07
+    path = tmp_path / "questions.jsonl"
+    write_questions(path, [row])
+    with pytest.raises(ValueError, match="多工具"):
+        run_eval._load_questions(path)
+
+
+def test_v2_dry_run_saves_separate_report_and_never_calls_agent(tmp_path, monkeypatch):
+    monkeypatch.setattr(run_eval, "EVAL_DIR", tmp_path)
+    forbidden = Mock(side_effect=AssertionError("不能调用真实 API"))
+    monkeypatch.setattr(agent, "run", forbidden)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    results = tmp_path / "results"
+    results.mkdir()
+    old_report = results / "summary.md"
+    old_report.write_bytes(b"existing v1 report\r\n")
+    question_path = tmp_path / "questions_v2.jsonl"
+    safety = question_row("safety-question")
+    safety.update(category="safety", expected_tool="safety_check", expected_value=[])
+    rows = [multi_question(), safety]
+    write_questions(question_path, rows)
+
+    summary = run_eval.run_evaluation(question_path, dry_run=True)
+
+    forbidden.assert_not_called()
+    assert summary["correct"] == summary["total"] == 2
+    assert set(summary["categories"]) == {"multi_step", "safety"}
+    assert Path(summary["summary_path"]).parent == results / "questions_v2" / "dry_run"
+    assert old_report.read_bytes() == b"existing v1 report\r\n"
+    records = [json.loads(line) for line in Path(summary["records_path"]).read_text(encoding="utf-8").splitlines()]
+    assert [call["name"] for call in records[0]["tool_calls"]] == rows[0]["expected_tools"]
+    assert records[1]["tool_calls"][0]["result"]["alerts"] == []
+    assert "不代表模型准确率" in Path(summary["summary_path"]).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("custom_questions", [False, True])
+def test_cli_questions_option_defaults_to_v1(monkeypatch, capsys, custom_questions):
+    mocked = Mock(return_value={"total": 2, "accuracy": 1.0, "tool_accuracy": 1.0,
+                               "summary_path": "mock/summary.md"})
+    monkeypatch.setattr(run_eval, "run_evaluation", mocked)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    argv = ["run_eval.py", "--dry-run", "--limit", "2"]
+    if custom_questions:
+        argv.extend(["--questions", "eval/questions_v2.jsonl"])
+    monkeypatch.setattr(sys, "argv", argv)
+    assert run_eval.main() == 0
+    kwargs = mocked.call_args.kwargs
+    expected_path = Path("eval/questions_v2.jsonl") if custom_questions else run_eval.EVAL_DIR / "questions.jsonl"
+    assert kwargs["questions_path"] == expected_path
+    assert kwargs["dry_run"] is True and kwargs["limit"] == 2
+    assert "完成 2 题" in capsys.readouterr().out
