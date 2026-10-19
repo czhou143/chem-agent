@@ -37,9 +37,19 @@
 
 ## 演示
 
-下图是 `examples/demo.py` 的三道题终端输出拼图，依次展示阿司匹林分子量、咖啡因分子式、乙醇与 1-丙醇的 Morgan 指纹 Tanimoto 相似度，包含工具调用参数、计算结果和最终回答。
+以下两张原始终端截图来自一次真实运行 `examples/demo.py`，展示阿司匹林分子量、咖啡因分子式，以及乙醇与 1-丙醇的 Morgan 指纹 Tanimoto 相似度。分子性质数字来自 RDKit 工具；自然语言措辞可能因模型采样略有不同。
 
-![examples/demo.py 三道题的终端输出](docs/images/demo.png)
+两张图是**同一次运行的连续输出，分两屏截取**；原样保存，没有拼接、修改像素文字或美化对齐。可与[完整原始日志](examples/demo_output.txt)核对工具参数、结果和最终回答。
+
+日志保留原始 UTF-16LE 编码；若网页不显示文本，可下载后用支持该编码的文本编辑器打开。
+
+第 1 屏：阿司匹林分子量，以及咖啡因分子式题的前半部分。
+
+![真实运行第 1 屏：阿司匹林分子量及咖啡因分子式](docs/images/demo-draw-1.png)
+
+第 2 屏：接续咖啡因题的回答末尾，以及乙醇与 1-丙醇相似度题和运行结束提示。
+
+![真实运行第 2 屏：咖啡因回答末尾及乙醇与 1-丙醇相似度](docs/images/demo-draw-2.png)
 
 ## 架构
 
@@ -203,7 +213,8 @@ chem-agent/
 │   └── mcp_client_demo.py  # SDK 客户端：列工具、计算阿司匹林
 ├── examples/
 │   ├── min_tool_demo.py    # 无需密钥的本地示例
-│   └── demo.py             # 三种问题的完整 Agent 演示
+│   ├── demo.py             # 三种问题的完整 Agent 演示
+│   └── demo_output.txt     # 与原始截图对应的一次真实运行日志
 ├── eval/
 │   ├── build_questions.py  # 生成、校验期望值
 │   ├── questions.jsonl     # v1：40 道中文题
@@ -262,9 +273,19 @@ Sources: saved [formula](eval/results/20261018_221950_033160.jsonl#L12), [HBD/HB
 
 ### Demo
 
-This image combines the terminal output of three questions from `examples/demo.py`: aspirin's molecular weight, caffeine's molecular formula, and the Morgan-fingerprint Tanimoto similarity between ethanol and 1-propanol. It shows tool-call arguments, computed results, and final answers.
+These two raw terminal screenshots come from one real run of `examples/demo.py`: aspirin's molecular weight, caffeine's molecular formula, and the Morgan-fingerprint Tanimoto similarity between ethanol and 1-propanol. Molecular-property numbers come from the RDKit tools; natural-language wording may vary slightly because of model sampling.
 
-![Terminal output of the three examples/demo.py questions](docs/images/demo.png)
+They show **continuous output from the same run, captured across two screens**. The screenshots are preserved as supplied, without stitching, pixel/text edits, or alignment retouching. Compare the tool arguments, results, and final answers with the [complete raw log](examples/demo_output.txt).
+
+The log retains its original UTF-16LE encoding. If the web viewer does not display it as text, download it and open it in a text editor that supports this encoding.
+
+Screen 1: the aspirin question and the first portion of the caffeine question.
+
+![Real run, screen 1: aspirin molecular weight and caffeine formula](docs/images/demo-draw-1.png)
+
+Screen 2: the end of the caffeine answer, followed by the ethanol/1-propanol similarity question and the completion message.
+
+![Real run, screen 2: caffeine answer ending and ethanol/1-propanol similarity](docs/images/demo-draw-2.png)
 
 ### Architecture
 
@@ -402,7 +423,7 @@ Replace `<PROJECT_ROOT>` with your project's full path. On Linux/macOS, use `<PR
 - `chem_agent/`: RDKit tools, schemas and the Agent loop.
 - `src/mcp_server.py`: official FastMCP stdio adapter.
 - `scripts/mcp_client_demo.py`: SDK client listing tools and computing aspirin's molecular weight.
-- `examples/`: a local RDKit example and the three-question Agent demo.
+- `examples/`: a local RDKit example, the three-question Agent demo, and the raw log corresponding to the screenshots.
 - `eval/`: v1/v2 datasets, generation/validation, evaluation with token accounting, saved-result comparison and reports.
 - `tests/`: tools, Agent, dataset, scoring and MCP protocol tests.
 - `docs/`: project documents and images.
