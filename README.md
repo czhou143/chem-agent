@@ -7,6 +7,8 @@
 
 [English](#english)
 
+项目一页纸：[中文](docs/08-项目一页纸.md)｜[English](docs/08-one-pager.md)（简历 / 面试速览）。
+
 ## 功能
 
 | RDKit 工具 | 功能 |
@@ -242,6 +244,8 @@ chem-agent/
 ## English
 
 A chemistry assistant that uses DeepSeek to select tools and RDKit to compute molecular properties and structural alerts, with v1 (40-question) and v2 (60-question) evaluations and saved iteration results.
+
+One-page project summaries: [English](docs/08-one-pager.md) | [中文](docs/08-项目一页纸.md), for resumes and interviews.
 
 ### Features
 
