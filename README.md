@@ -25,6 +25,7 @@
 - **安全规则有出处**：只使用 RDKit 内置目录，不手写 SMARTS。Brenk et al., *ChemMedChem* (2008)，DOI [10.1002/cmdc.200700139](https://doi.org/10.1002/cmdc.200700139)；Jadhav et al., *J Med Chem* (2010)，DOI [10.1021/jm901070c](https://doi.org/10.1021/jm901070c)。完整论文名称见文末“规则来源”。
 - **输入检查**：工具遇到非法 SMILES 返回 `error`；单道评测题异常记为失败并继续。
 - **三题演示**：依次展示分子量、分子式和相似度问题的工具名称、参数、计算结果及最终回答。
+- **MCP stdio 服务**：用官方 MCP Python SDK 的 FastMCP 暴露上述 8 个工具，复用原函数和 schema；附本地客户端与真实 stdio 协议测试，无需 `LLM_API_KEY`。
 
 **安全免责声明：仅基于结构的规则粗筛（药物化学警示库），不是毒性或爆炸性评估，请以 MSDS/SDS 为准。** 无警示不等于安全。Agent 的 system prompt 要求转述免责声明，且**不提供合成路线或制备方法**；当前评测不能证明所有真实请求都能正确遵从这些要求。
 
@@ -84,9 +85,11 @@
 
 ## 快速开始
 
-以下命令在项目根目录的 **Windows PowerShell** 中执行；本机验证环境为 **Python 3.12.5**。
+以下命令均在项目根目录执行，提供 **Windows PowerShell** 和 **Linux/macOS Bash/Zsh** 两种写法。推荐 Python 3.12；本次实际验证环境为 Windows / Python 3.12.5，Linux/macOS 命令尚未在对应系统实测。
 
 ### 1. 建立虚拟环境并安装依赖
+
+Windows PowerShell：
 
 ```powershell
 py -3.12 -m venv .venv
@@ -94,7 +97,15 @@ py -3.12 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-已有 `.venv` 时跳过创建；以后每次打开终端，先执行 `.\.venv\Scripts\Activate.ps1`。`requirements.txt` 锁定当前环境的直接依赖及间接依赖版本。
+Linux/macOS（先确认 `python3` 为 Python 3.12）：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+已有 `.venv` 时跳过创建；以后每次打开终端，先执行对应系统的激活命令。`requirements.txt` 锁定当前环境的直接依赖及间接依赖版本；`pywin32` 带 Windows 平台条件，其他系统安装时会跳过它。
 
 ### 2. 设置密钥并运行示例
 
@@ -109,6 +120,16 @@ python examples/demo.py
 ```powershell
 python examples/min_tool_demo.py
 ```
+
+Linux/macOS 的密钥设置与 Agent 示例：
+
+```bash
+export LLM_API_KEY="替换为你的 DeepSeek API key"
+python -m chem_agent.agent "阿司匹林的分子量是多少"
+python examples/demo.py
+```
+
+`export` 同样只影响当前 shell 会话及其子进程；本地工具和 MCP 服务不用设置密钥。
 
 `demo.py` 在每道问题完成后，按顺序展示该题记录的每一步工具调用和最终回答。
 
@@ -128,6 +149,40 @@ python eval/run_eval.py --questions eval/questions_v2.jsonl --output-dir eval/re
 
 默认题集仍为 v1；`--questions` 可指定 v2，`--limit N` 只跑前 N 题。上面的真实命令显式指定新的输出目录，避免覆盖仓库保留的汇总；每次写入带时间戳的 JSONL、摘要及该目录的 `summary.md`。`--dry-run` 将报告放在对应输出目录的 `dry_run/` 中，只用期望值构造 mock，模拟成绩不代表模型能力。`build_questions.py --check` 同时校验两版；不带此参数时生成 v2，保留 v1。
 
+## MCP：从其他客户端调用本地工具
+
+使用[官方 MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x)，固定 `mcp==1.30.0`，通过 `FastMCP` 的 **stdio** 传输连接。`src/mcp_server.py` 直接注册 `chem_agent.tools.TOOLS` 中的函数，工具描述和参数说明来自 `TOOL_SCHEMAS`；没有复制化学计算逻辑。现有 DeepSeek Agent 仍直接调用本地工具。
+
+激活 `.venv`、安装依赖后，以下命令在 Windows、Linux/macOS 上相同：
+
+```text
+# 单独启动服务；等待 MCP 客户端发送协议消息，Ctrl+C 退出
+python src/mcp_server.py
+
+# 演示客户端会自行启动并关闭服务，无需先执行上一条命令
+python scripts/mcp_client_demo.py
+```
+
+stdio 通过子进程的标准输入/输出通信，不启动网页或 HTTP 端口。服务的 stdout 专供协议消息，诊断信息发往 stderr。demo 会执行 `tools/list`，打印全部 8 个工具，再调用阿司匹林的 `mol_weight`，输出 `{"mol_weight": 180.16}`。
+
+Claude Desktop / Cursor 的 `mcpServers` 配置示例（Windows）：
+
+```json
+{
+  "mcpServers": {
+    "chem-agent": {
+      "command": "<PROJECT_ROOT>/.venv/Scripts/python.exe",
+      "args": ["<PROJECT_ROOT>/src/mcp_server.py"],
+      "env": {"PYTHONUTF8": "1"}
+    }
+  }
+}
+```
+
+将 `<PROJECT_ROOT>` 替换为你电脑上项目根目录的完整路径；Linux/macOS 将 `command` 改为 `<PROJECT_ROOT>/.venv/bin/python`，`args` 不变。路径用正斜杠；若使用反斜杠，JSON 中需写为 `\\`。若已有其他服务，仅合并 `chem-agent` 条目。Claude Desktop 可通过设置中的 Developer / Edit Config 编辑配置；Cursor 可写入项目的 `.cursor/mcp.json`。参见 [MCP 本地服务指南](https://modelcontextprotocol.io/docs/develop/connect-local-servers)与 [Cursor MCP 文档](https://cursor.com/docs/mcp)。
+
+**安全边界**：`safety_check` 原样返回免责声明。初始化的 server instructions 要求安全问题调用该工具、完整转述免责声明，并直接拒绝所有合成路线或制备方法请求；服务器只提供这 8 个性质/结构工具，不提供合成功能。MCP 本身不负责生成自然语言回答，宿主客户端仍须遵守这些要求；本次验证了 SDK 客户端通信，尚未实测 Claude Desktop / Cursor 中模型的遵从性。MCP 服务和 demo 均不需要 DeepSeek 或 `LLM_API_KEY`。
+
 ## 项目结构
 
 ```text
@@ -136,6 +191,10 @@ chem-agent/
 │   ├── __init__.py
 │   ├── tools.py            # RDKit 工具与函数描述
 │   └── agent.py            # DeepSeek function-calling 循环
+├── src/
+│   └── mcp_server.py       # 官方 FastMCP stdio 适配层
+├── scripts/
+│   └── mcp_client_demo.py  # SDK 客户端：列工具、计算阿司匹林
 ├── examples/
 │   ├── min_tool_demo.py    # 无需密钥的本地示例
 │   └── demo.py             # 三种问题的完整 Agent 演示
@@ -146,7 +205,7 @@ chem-agent/
 │   ├── run_eval.py         # 自动评分、token 统计
 │   ├── compare_results.py  # 从保存的结果生成前后对比
 │   └── results/            # 逐题详情和汇总报告
-├── tests/                 # 工具、Agent、题集与评分器测试
+├── tests/                 # 工具、Agent、题集、评分器与 MCP 协议测试
 ├── docs/
 │   └── images/            # 头图与架构图
 ├── requirements.txt       # 当前环境的版本锁定
@@ -156,9 +215,10 @@ chem-agent/
 
 ## 后续计划
 
-- [ ] MCP 封装：将现有工具暴露为 MCP 服务，供支持 MCP 的客户端调用。
+- [x] MCP stdio 封装及 SDK 客户端验证。
+- [ ] 在 Claude Desktop / Cursor 中验证实际连接与宿主对安全要求的遵从性。
 
-MCP 封装尚未实现；结构警示工具与项目图片已经提供。项目采用 [MIT License](LICENSE)，Copyright (c) 2026 czhou143。
+项目采用 [MIT License](LICENSE)，Copyright (c) 2026 czhou143。
 
 ---
 
@@ -184,6 +244,7 @@ A chemistry assistant that uses DeepSeek to select tools and RDKit to compute mo
 - Source-backed screening using built-in catalogs, without handwritten SMARTS: Brenk et al., *ChemMedChem* (2008), DOI [10.1002/cmdc.200700139](https://doi.org/10.1002/cmdc.200700139); Jadhav et al., *J Med Chem* (2010), DOI [10.1021/jm901070c](https://doi.org/10.1021/jm901070c). Full paper titles are listed under References below.
 - Invalid SMILES return an `error`; individual evaluation exceptions are recorded as failures without stopping the batch.
 - A three-question demo prints each recorded tool call and the final answer after each question finishes.
+- An MCP stdio server exposes all 8 tools using the official SDK's FastMCP, reusing the existing functions and schemas. A local client and real stdio integration tests require no `LLM_API_KEY`.
 
 **Disclaimer: this is a structure-based preliminary screen using medicinal-chemistry alert catalogs, not a toxicity or explosivity assessment; consult the MSDS/SDS.** No alerts do not establish safety. The system prompt requires the disclaimer and prohibits **synthesis routes or preparation methods**; the current evaluation does not establish compliance for every real-world request.
 
@@ -240,7 +301,9 @@ The only experimental change was one instruction appended to the system prompt: 
 
 ### Quick start
 
-From the project root in **Windows PowerShell**, with **Python 3.12** (tested on 3.12.5):
+Run from the project root with **Python 3.12**. The verified environment is Windows / Python 3.12.5; the Linux/macOS commands below have not been tested on those operating systems.
+
+**Windows PowerShell:**
 
 ```powershell
 py -3.12 -m venv .venv
@@ -265,22 +328,80 @@ python eval/run_eval.py --questions eval/questions_v2.jsonl --output-dir eval/re
 
 Skip environment creation if `.venv` exists; activate it in each new terminal. Requirements pin the installed direct and transitive dependencies. Keep real credentials out of source files; the command above sets the key only for the current session.
 
+**Linux/macOS Bash/Zsh** (ensure `python3` is Python 3.12):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+
+# Only the DeepSeek Agent and live evaluation need this key
+export LLM_API_KEY="<your DeepSeek API key>"
+python -m chem_agent.agent "阿司匹林的分子量是多少"
+python examples/demo.py
+
+# Offline commands are identical on both platforms
+python examples/min_tool_demo.py
+python -m pytest -q
+python eval/build_questions.py --check
+python eval/run_eval.py --questions eval/questions_v2.jsonl --dry-run
+```
+
+Activate with `source .venv/bin/activate` in each new shell. `pywin32` has a Windows-only dependency marker and is skipped elsewhere. Local tools and MCP do not require the key.
+
 The default dataset remains v1; select v2 with `--questions`, or use `--limit N` for a prefix. The live examples explicitly choose new output directories to preserve the archived summaries. Each run writes timestamped JSONL details and a summary, plus that directory's latest `summary.md`. Dry runs save under the corresponding `dry_run/` directory and use expected answers as mock responses; their scores do not measure model quality. The generator's `--check` validates both datasets; generation without it writes v2 while preserving v1.
+
+### MCP: use the local tools from another client
+
+The [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x) is pinned to `mcp==1.30.0`. `src/mcp_server.py` uses **FastMCP over stdio**, registers the existing functions from `chem_agent.tools.TOOLS`, and preserves descriptions and parameter schemas from `TOOL_SCHEMAS`. Chemistry logic is not duplicated; the existing DeepSeek Agent continues to call local functions directly.
+
+After activating `.venv` and installing requirements, these commands work the same way on both platforms:
+
+```text
+# Start a server waiting for MCP protocol messages; Ctrl+C exits
+python src/mcp_server.py
+
+# The demo starts and closes its own server; no separate server is needed
+python scripts/mcp_client_demo.py
+```
+
+Stdio uses a child process's standard input/output, with no web page or HTTP listener. Server stdout is reserved for protocol messages; diagnostics go to stderr. The demo prints the 8 tool names from `tools/list`, then calls aspirin's `mol_weight` and prints `{"mol_weight": 180.16}`.
+
+Example `mcpServers` configuration for Claude Desktop / Cursor (Windows):
+
+```json
+{
+  "mcpServers": {
+    "chem-agent": {
+      "command": "<PROJECT_ROOT>/.venv/Scripts/python.exe",
+      "args": ["<PROJECT_ROOT>/src/mcp_server.py"],
+      "env": {"PYTHONUTF8": "1"}
+    }
+  }
+}
+```
+
+Replace `<PROJECT_ROOT>` with your project's full path. On Linux/macOS, use `<PROJECT_ROOT>/.venv/bin/python` for `command`; keep `args` unchanged. Forward slashes avoid JSON escaping; backslashes must be doubled. Merge the `chem-agent` entry with any existing servers. In Claude Desktop, use Settings → Developer → Edit Config; in Cursor, use the project's `.cursor/mcp.json`. See the [official local-server guide](https://modelcontextprotocol.io/docs/develop/connect-local-servers) and [Cursor MCP documentation](https://cursor.com/docs/mcp).
+
+**Safety boundary:** `safety_check` returns its original disclaimer. Server instructions require safety questions to call it, repeat the full disclaimer, and refuse all synthesis routes or preparation methods. Only the 8 property/structural tools are exposed, with no synthesis capability. MCP does not generate natural-language answers: the host must enforce these instructions. SDK communication has been tested; Claude Desktop / Cursor integration and model compliance have not. Neither the server nor the demo needs DeepSeek or `LLM_API_KEY`.
 
 ### Project layout
 
 - `chem_agent/`: RDKit tools, schemas and the Agent loop.
+- `src/mcp_server.py`: official FastMCP stdio adapter.
+- `scripts/mcp_client_demo.py`: SDK client listing tools and computing aspirin's molecular weight.
 - `examples/`: a local RDKit example and the three-question Agent demo.
 - `eval/`: v1/v2 datasets, generation/validation, evaluation with token accounting, saved-result comparison and reports.
-- `tests/`: tools, Agent, dataset and scoring tests.
+- `tests/`: tools, Agent, dataset, scoring and MCP protocol tests.
 - `docs/`: project documents and images.
 - `requirements.txt`, `LICENSE`, `README.md`: pinned environment, license and usage documentation.
 
 ### Roadmap
 
-- [ ] MCP wrapper: expose the existing tools to MCP-compatible clients.
+- [x] MCP stdio wrapper and SDK client validation.
+- [ ] Verify actual Claude Desktop / Cursor connections and host compliance with safety instructions.
 
-The MCP wrapper is planned; structural screening and the project images are already implemented. Licensed under the [MIT License](LICENSE), Copyright (c) 2026 czhou143.
+Licensed under the [MIT License](LICENSE), Copyright (c) 2026 czhou143.
 
 ## 规则来源 / References
 
