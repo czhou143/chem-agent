@@ -199,7 +199,7 @@ Claude Desktop / Cursor 的 `mcpServers` 配置示例（Windows）：
 
 将 `<PROJECT_ROOT>` 替换为你电脑上项目根目录的完整路径；Linux/macOS 将 `command` 改为 `<PROJECT_ROOT>/.venv/bin/python`，`args` 不变。路径用正斜杠；若使用反斜杠，JSON 中需写为 `\\`。若已有其他服务，仅合并 `chem-agent` 条目。Claude Desktop 可通过设置中的 Developer / Edit Config 编辑配置；Cursor 可写入项目的 `.cursor/mcp.json`。参见 [MCP 本地服务指南](https://modelcontextprotocol.io/docs/develop/connect-local-servers)与 [Cursor MCP 文档](https://cursor.com/docs/mcp)。
 
-**安全边界**：`safety_check` 原样返回免责声明。初始化的 server instructions 要求安全问题调用该工具、完整转述免责声明，并直接拒绝所有合成路线或制备方法请求；服务器只提供这 8 个性质/结构工具，不提供合成功能。MCP 本身不负责生成自然语言回答，宿主客户端仍须遵守这些要求；本次验证了 SDK 客户端通信，尚未实测 Claude Desktop / Cursor 中模型的遵从性。MCP 服务和 demo 均不需要 DeepSeek 或 `LLM_API_KEY`。
+**安全边界**：`safety_check` 原样返回免责声明。初始化的 server instructions 要求安全问题调用该工具、完整转述免责声明，并直接拒绝所有合成路线或制备方法请求；服务器只提供这 8 个性质/结构工具，不提供合成功能。MCP 本身不负责生成自然语言回答，宿主客户端仍须遵守这些要求；已验证 SDK 客户端通信；**Cursor 已实测**连接与工具调用（[工具列表截图](docs/images/cursor-mcp-tools.webp)／[调用截图](docs/images/cursor-mcp-call.webp)），宿主对上述安全要求的遵从性尚未专门测试；**Claude Desktop 未测**。MCP 服务和 demo 均不需要 DeepSeek 或 `LLM_API_KEY`。
 
 ## 项目结构
 
@@ -235,7 +235,8 @@ chem-agent/
 ## 后续计划
 
 - [x] MCP stdio 封装及 SDK 客户端验证。
-- [ ] 在 Claude Desktop / Cursor 中验证实际连接与宿主对安全要求的遵从性。
+- [x] Cursor 已实测：连接成功、显示 8 个工具，咖啡因 `mol_weight` 返回 194.19（[工具列表截图](docs/images/cursor-mcp-tools.webp)／[调用截图](docs/images/cursor-mcp-call.webp)）。
+- [ ] Claude Desktop 未测；宿主对安全要求的遵从性待验证。
 
 项目采用 [MIT License](LICENSE)，Copyright (c) 2026 czhou143。
 
@@ -420,7 +421,7 @@ Example `mcpServers` configuration for Claude Desktop / Cursor (Windows):
 
 Replace `<PROJECT_ROOT>` with your project's full path. On Linux/macOS, use `<PROJECT_ROOT>/.venv/bin/python` for `command`; keep `args` unchanged. Forward slashes avoid JSON escaping; backslashes must be doubled. Merge the `chem-agent` entry with any existing servers. In Claude Desktop, use Settings → Developer → Edit Config; in Cursor, use the project's `.cursor/mcp.json`. See the [official local-server guide](https://modelcontextprotocol.io/docs/develop/connect-local-servers) and [Cursor MCP documentation](https://cursor.com/docs/mcp).
 
-**Safety boundary:** `safety_check` returns its original disclaimer. Server instructions require safety questions to call it, repeat the full disclaimer, and refuse all synthesis routes or preparation methods. Only the 8 property/structural tools are exposed, with no synthesis capability. MCP does not generate natural-language answers: the host must enforce these instructions. SDK communication has been tested; Claude Desktop / Cursor integration and model compliance have not. Neither the server nor the demo needs DeepSeek or `LLM_API_KEY`.
+**Safety boundary:** `safety_check` returns its original disclaimer. Server instructions require safety questions to call it, repeat the full disclaimer, and refuse all synthesis routes or preparation methods. Only the 8 property/structural tools are exposed, with no synthesis capability. MCP does not generate natural-language answers: the host must enforce these instructions. SDK communication has been tested; **Cursor integration tested** for connection and tool calls ([tool list](docs/images/cursor-mcp-tools.webp) / [call screenshot](docs/images/cursor-mcp-call.webp)), while host compliance with these safety instructions has not been specifically tested; **Claude Desktop untested.** Neither the server nor the demo needs DeepSeek or `LLM_API_KEY`.
 
 ### Project layout
 
@@ -436,7 +437,8 @@ Replace `<PROJECT_ROOT>` with your project's full path. On Linux/macOS, use `<PR
 ### Roadmap
 
 - [x] MCP stdio wrapper and SDK client validation.
-- [ ] Verify actual Claude Desktop / Cursor connections and host compliance with safety instructions.
+- [x] Cursor tested: connected, 8 tools listed, caffeine `mol_weight` returned 194.19 ([tool list](docs/images/cursor-mcp-tools.webp) / [call screenshot](docs/images/cursor-mcp-call.webp)).
+- [ ] Claude Desktop untested; host compliance with safety instructions still to be verified.
 
 Licensed under the [MIT License](LICENSE), Copyright (c) 2026 czhou143.
 
