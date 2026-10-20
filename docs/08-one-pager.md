@@ -8,7 +8,9 @@ A resume portfolio project for **ByteIntern, Agent development/evaluation**, con
 
 A DeepSeek function-calling loop selects tools, receives local RDKit results, and produces an answer. The **8 tools** cover molecular weight, LogP, formula, TPSA, hydrogen-bond counts, Lipinski screening, similarity, and `safety_check`. [Tool registry](../chem_agent/tools.py)
 
-**One toolset, two interfaces:** the Agent calls functions directly through function calling; an official-SDK MCP stdio server exposes the same functions to external clients. Chemistry logic is reused. [Architecture](../README.md)
+HBA uses RDKit `NumHAcceptors` (caffeine: **3**); the original Lipinski N+O count gives **6** for caffeine's C8H10N4O2 formula. The implementation is unchanged. [Definitions and records](../README.md)
+
+**One toolset, two interfaces:** the Agent calls functions directly through function calling; an official-SDK MCP stdio server exposes the same functions to external clients. Chemistry logic is reused. **MCP integration with Claude Desktop / Cursor is untested.** [Architecture](../README.md)
 
 ## Verified results
 
@@ -18,7 +20,7 @@ A DeepSeek function-calling loop selects tools, receives local RDKit results, an
 | v2, before and after | **60/60 in each run**, `deepseek-flash`, non-thinking mode. [Before](../eval/results/v2_s4_20261019/before/summary.md) / [After](../eval/results/v2_s4_20261019/after/summary.md) |
 | Offline tests | **198 passed**, covering tools, Agent, evaluation, and MCP. [Validation record](03-当前进度.md) |
 
-The iteration changed one prompt sentence: q038/q039 each went from **2 tool calls to 1**. Accuracy stayed unchanged and total tokens increased; this was a reduction in redundant calls, not an accuracy gain. Different datasets and models prevent direct v1/v2 score comparisons. [Review](../eval/results/v2_error_analysis.md)
+The iteration changed one prompt sentence: q038/q039 each went from **2 tool calls to 1**. [Review](../eval/results/v2_error_analysis.md) Accuracy stayed unchanged; total tokens increased by **3,702** (**179,094 → 182,796**). [Comparison](../eval/results/v2_comparison.md) This was a reduction in redundant calls, not an accuracy gain. Different datasets and models prevent direct v1/v2 score comparisons.
 
 ## Safety boundary
 
