@@ -10,7 +10,7 @@ A DeepSeek function-calling loop selects tools, receives local RDKit results, an
 
 HBA uses RDKit `NumHAcceptors` (caffeine: **3**); the original Lipinski N+O count gives **6** for caffeine's C8H10N4O2 formula. The implementation is unchanged. [Definitions and records](../README.md)
 
-**One toolset, two interfaces:** the Agent calls functions directly through function calling; an official-SDK MCP stdio server exposes the same functions to external clients. Chemistry logic is reused. **MCP integration with Claude Desktop / Cursor is untested.** [Architecture](../README.md)
+**One toolset, two interfaces:** the Agent calls functions directly through function calling; an official-SDK MCP stdio server exposes the same functions to external clients. Chemistry logic is reused. **Cursor integration tested** ([tool list](images/cursor-mcp-tools.webp) / [call screenshot](images/cursor-mcp-call.webp)); **Claude Desktop untested.** [Architecture](../README.md)
 
 ## Verified results
 
